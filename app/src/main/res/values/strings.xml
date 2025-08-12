@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">WiFinder</string>
+    <string name="title_activity_wi_fi_signals">WiFiSignalsActivity</string>
+    <string name="title_activity_location">LocationActivity</string>
+</resources>

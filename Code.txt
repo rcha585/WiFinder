@@ -1,0 +1,61 @@
+function doPost(e) {
+  try {
+    Logger.log("=== New Request Received ===");
+    Logger.log("Headers: " + JSON.stringify(e.headers));
+    Logger.log("PostData: " + JSON.stringify(e.postData));
+    Logger.log("Raw: " + e.postData?.contents);
+    
+    if (!e.postData || !e.postData.contents) {
+      Logger.log("Missing postData or contents.");
+      return ContentService.createTextOutput("ERROR: No post data received");
+    }
+
+    const raw = e.postData.contents;
+    Logger.log("Raw Payload: " + raw);
+
+    const data = JSON.parse(raw);
+    Logger.log("Parsed Payload: " + JSON.stringify(data));
+
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+
+    // Ensure columns exist
+    let headers = [];
+    if (sheet.getLastColumn() > 0) {
+      headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    }
+    const baseCols = ["latitude", "longitude", "floor", "phoneId", "timestamp"];
+    baseCols.forEach(h => {
+      if (!headers.includes(h)) headers.push(h);
+    });
+
+    // Add BSSID columns dynamically
+    const bssids = Object.keys(data.signals || {});
+    bssids.forEach(bssid => {
+      if (!headers.includes(bssid)) headers.push(bssid);
+    });
+
+    // Update headers if changed
+    if (headers.length > sheet.getLastColumn()) {
+      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    }
+
+    // Build row aligned with headers
+    const row = headers.map(h => {
+      if (baseCols.includes(h)) return data[h] || "";
+      if (data.signals && h in data.signals) return data.signals[h];
+      return ""; // Default for unseen BSSIDs.
+    });
+
+    sheet.appendRow(row);
+
+    Logger.log("Row added successfully.");
+    return ContentService.createTextOutput("Success").setMimeType(ContentService.MimeType.TEXT);
+
+  } catch (err) {
+    Logger.log("ERROR OCCURRED: " + err.toString());
+    return ContentService.createTextOutput("ERROR: " + err.toString())
+      .setMimeType(ContentService.MimeType.TEXT);
+  }
+}
+
+
