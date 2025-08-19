@@ -40,10 +40,9 @@ fun ScanTool(wifiViewModel: WifiViewModel) {
     var longitude by remember { mutableStateOf("") }
     var floorNumber by remember { mutableStateOf("") }
     var phoneId by remember { mutableStateOf("") }
-    // YOUR LINK GOES HERE INSIDE THE QUOTES eg. mutableStateOf("https://script.google.com/macros/s/AKfycbx.../exec")
-    var googleSheetLink by remember { mutableStateOf("") }
 
-    
+    var googleSheetLink by remember { mutableStateOf("https://script.google.com/a/macros/aucklanduni.ac.nz/s/AKfycbx0OsDLTOoTGKY6BFvrgEdLOZud-8j4XtWUa5a6HW7fBYe3uNujxR-CNQ7XegUiMXsi1w/exec") }
+
     val lastScanTime by wifiViewModel.lastScanTime
 
     var timeSinceLastScan by remember { mutableStateOf("Never") }
@@ -167,7 +166,7 @@ fun ScanTool(wifiViewModel: WifiViewModel) {
                     phoneId,
                     showToast,
                     wifiViewModel,
-                    googleSheetLink
+                    "https://script.google.com/macros/s/AKfycbzsISU5WpqTe8rH3aYgHk3eEhRKhTZlJvRnFfvyFtMVk1dZMel-hCdfJRVCtco8_JSa/exec"
                 )
             },
             colors = ButtonDefaults.buttonColors(
