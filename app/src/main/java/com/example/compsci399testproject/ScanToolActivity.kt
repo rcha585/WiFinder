@@ -33,6 +33,8 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.IOException
 
+import com.example.compsci399testproject.utils.Net
+
 
 @Composable
 fun ScanTool(wifiViewModel: WifiViewModel) {
@@ -41,7 +43,7 @@ fun ScanTool(wifiViewModel: WifiViewModel) {
     var floorNumber by remember { mutableStateOf("") }
     var phoneId by remember { mutableStateOf("") }
 
-    var googleSheetLink by remember { mutableStateOf("https://script.google.com/a/macros/aucklanduni.ac.nz/s/AKfycbx0OsDLTOoTGKY6BFvrgEdLOZud-8j4XtWUa5a6HW7fBYe3uNujxR-CNQ7XegUiMXsi1w/exec") }
+    var googleSheetLink by remember { mutableStateOf("https://script.google.com/macros/s/AKfycbx0OsDLTOoTGKY6BFvrgEdLOZud-8j4XtWUa5a6HW7fBYe3uNujxR-CNQ7XegUiMXsi1w/exec") }
 
     val lastScanTime by wifiViewModel.lastScanTime
 
@@ -166,7 +168,7 @@ fun ScanTool(wifiViewModel: WifiViewModel) {
                     phoneId,
                     showToast,
                     wifiViewModel,
-                    "https://script.google.com/macros/s/AKfycbzsISU5WpqTe8rH3aYgHk3eEhRKhTZlJvRnFfvyFtMVk1dZMel-hCdfJRVCtco8_JSa/exec"
+                    googleSheetLink
                 )
             },
             colors = ButtonDefaults.buttonColors(
@@ -310,7 +312,7 @@ fun sendResultsToWebApp(
 
     Log.d("request", "Sending request: $request")
 
-    OkHttpClient().newCall(request).enqueue(object : Callback {
+    Net.http.newCall(request).enqueue(object : Callback {
         override fun onFailure(call: Call, e: IOException) {
             Handler(Looper.getMainLooper()).post {
                 onError("Upload failed: ${e.message}")
@@ -318,11 +320,14 @@ fun sendResultsToWebApp(
         }
 
         override fun onResponse(call: Call, response: Response) {
-            Handler(Looper.getMainLooper()).post {
-                if (response.isSuccessful) {
-                    Toast.makeText(context, "Data uploaded!", Toast.LENGTH_SHORT).show()
-                } else {
-                    onError("Upload failed: ${response.code}")
+            // 一定要关闭 response，避免连接泄漏
+            response.use { resp ->
+                Handler(Looper.getMainLooper()).post {
+                    if (resp.isSuccessful) {
+                        Toast.makeText(context, "Data uploaded!", Toast.LENGTH_SHORT).show()
+                    } else {
+                        onError("Upload failed: ${resp.code}")
+                    }
                 }
             }
         }
