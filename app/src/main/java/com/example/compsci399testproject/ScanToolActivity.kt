@@ -40,6 +40,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 
 import com.example.compsci399testproject.utils.Net
+import com.example.compsci399testproject.utils.PositionSmoother
+import com.example.compsci399testproject.utils.BssidVectorizer
+import com.example.compsci399testproject.machinelearning.LocationPredictor
 
 
 @Composable
@@ -109,6 +112,43 @@ fun ScanTool(wifiViewModel: WifiViewModel) {
         Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
     }
 
+    // ——可选：在界面上显示预测结果——
+    var predFloor by remember { mutableStateOf<Int?>(null) }
+    var predX     by remember { mutableStateOf<Float?>(null) }
+    var predY     by remember { mutableStateOf<Float?>(null) }
+
+    // 平滑器：只平滑坐标，楼层通常不平滑（也可以做投票）
+    val smoother = remember { PositionSmoother(alpha = 0.3f) }
+
+    // 你已有的扫描结果
+    val wifiSignals = wifiViewModel.getResults()
+
+    // 当扫描结果变化且非空时触发一次预测
+    LaunchedEffect(wifiSignals) {
+        if (wifiSignals.isNotEmpty()) {
+            try {
+                val feature = BssidVectorizer.toFeatureVector(context, wifiSignals)
+                val f = LocationPredictor.predictFloor(feature)
+                val xRaw = LocationPredictor.predictX(feature)
+                val yRaw = LocationPredictor.predictY(feature)
+
+                // 平滑一下坐标
+                val (sx, sy) = smoother.smooth(xRaw, yRaw)
+
+                predFloor = f
+                predX = sx
+                predY = sy
+
+                // 可选 toast/日志
+                // Toast.makeText(context, "Pred F=$f  x=%.1f  y=%.1f".format(sx, sy), Toast.LENGTH_SHORT).show()
+                android.util.Log.d("Predict", "floor=$f, x=$sx, y=$sy")
+
+            } catch (t: Throwable) {
+                android.util.Log.w("Predict", "prediction failed: ${t.message}")
+            }
+        }
+    }
+
     Column(modifier = Modifier
         .fillMaxSize()
         .background(colorResource(id = R.color.lighter_grey))
@@ -126,8 +166,6 @@ fun ScanTool(wifiViewModel: WifiViewModel) {
             modifier = Modifier.padding(0.dp, 10.dp, 0.dp, 0.dp)
         )
 
-
-        val wifiSignals = wifiViewModel.getResults()
         val strongestSignal = wifiSignals.maxByOrNull { it.level }
         bestSignal = if (strongestSignal != null) {
             """Best:
@@ -272,25 +310,21 @@ fun captureData(
 
     // Observe scan results until we get some (max 10 seconds)
     CoroutineScope(Dispatchers.Main).launch {
-        val timeout = withTimeoutOrNull(10000) {
+        val timeout = withTimeoutOrNull(20000) {   // 20s 更稳
             wifiViewModel.scanResults.collect { results ->
                 if (results.isNotEmpty()) {
-                    if (wifiViewModel.hasScanChanged(results)) {
-                        // On a successful scan, push the scan results to the Google Sheet
-                        sendResultsToWebApp(
-                            context = context,
-                            latitude = latitude,
-                            longitude = longitude,
-                            floor = floor,
-                            phoneId = phoneId,
-                            results = results,
-                            webAppUrl = webAppUrl,
-                            onError = onError
-                        )
-                        cancel() // Stop collecting
-                    } else {
-                        Toast.makeText(context, "No new results.", Toast.LENGTH_SHORT).show()
-                    }
+                    // 立刻上传，别再卡在“必须和上一次不同”
+                    sendResultsToWebApp(
+                        context = context,
+                        latitude = latitude,
+                        longitude = longitude,
+                        floor = floor,
+                        phoneId = phoneId,
+                        results = results,
+                        webAppUrl = webAppUrl,
+                        onError = onError
+                    )
+                    cancel() // 成功后停止收集
                 }
             }
         }
