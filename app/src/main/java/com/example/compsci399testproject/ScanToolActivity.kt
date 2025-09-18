@@ -33,6 +33,12 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.IOException
 
+import android.Manifest
+import android.os.Build
+
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+
 import com.example.compsci399testproject.utils.Net
 
 
@@ -50,6 +56,36 @@ fun ScanTool(wifiViewModel: WifiViewModel) {
     var timeSinceLastScan by remember { mutableStateOf("Never") }
     var bestSignal by remember { mutableStateOf("") }
     var timeSeconds by remember { mutableStateOf(0) }
+
+    // Launcher that requests the right runtime permissions and reports the result.
+    // NOTE: On Android 13+ we request NEARBY_WIFI_DEVICES; on older versions we
+    // request ACCESS_FINE_LOCATION because Wi-Fi scans are gated by location.
+    val appContext = LocalContext.current.applicationContext
+
+    val launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        // results is a map<permission, granted?>
+        val denied = results.filterValues { granted -> !granted }.keys
+        if (denied.isNotEmpty()) {
+            // Some permission(s) were denied; Wi-Fi scans may return empty results.
+            Toast.makeText(
+                appContext,
+                "Permissions denied: ${denied.joinToString()}. Wi-Fi scan may fail.",
+                Toast.LENGTH_LONG
+            ).show()
+            Log.w("ScanTool", "Denied permissions: $denied")
+        } else {
+            Log.d("ScanTool", "All requested permissions granted.")
+        }}
+
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= 33) {
+            launcher.launch(arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES))
+        } else {
+            launcher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION))
+        }
+    }
 
     LaunchedEffect(lastScanTime) {
         while (true) {
