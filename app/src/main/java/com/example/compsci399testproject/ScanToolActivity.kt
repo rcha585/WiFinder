@@ -92,6 +92,16 @@ fun ScanTool(wifiViewModel: WifiViewModel) {
         }
     }
 
+    // 1) 进页面必打
+    LaunchedEffect(Unit) {
+        android.util.Log.d("BssidVec", "hello ScanTool")
+    }
+    // 2) 打一次白名单大小
+    LaunchedEffect(Unit) {
+        val n = com.example.compsci399testproject.utils.BssidVectorizer.vocabSize(appContext)
+        android.util.Log.d("BssidVec", "screen start, whitelist size = $n")
+    }
+
     LaunchedEffect(lastScanTime) {
         while (true) {
             val now = System.currentTimeMillis()
@@ -126,6 +136,25 @@ fun ScanTool(wifiViewModel: WifiViewModel) {
 
     // 你已有的扫描结果
     val wifiSignals = wifiViewModel.getResults()
+
+    // ①【新增】只负责打日志——无论本次扫描是否为空都会执行
+    LaunchedEffect(wifiSignals) {
+        // toFeatureVector 支持空列表，这里安全
+        val feature = BssidVectorizer.toFeatureVector(context, wifiSignals)
+        val vocabN  = BssidVectorizer.vocabSize(context)
+        val sizeN   = feature.size
+        val hits    = feature.count { it > -99.5f }
+        val misses  = sizeN - hits
+        val hitRate = if (sizeN > 0) "%.1f".format(100.0 * hits / sizeN) else "0.0"
+
+        val head8   = feature.take(8).joinToString(prefix = "[", postfix = "]") { "%.1f".format(it) }
+
+        android.util.Log.d(
+            "BssidVec",
+            "scan results=${wifiSignals.size}, vocab=$vocabN, featSize=$sizeN, " +
+                    "hits=$hits($hitRate%), misses=$misses, head8=$head8"
+        )
+    }
 
     // 当扫描结果变化且非空时触发一次预测
     LaunchedEffect(wifiSignals) {
