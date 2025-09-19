@@ -41,6 +41,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 
 import com.example.compsci399testproject.utils.Net
 import com.example.compsci399testproject.utils.PositionSmoother
+import com.example.compsci399testproject.utils.FloorStabilizer
+import com.example.compsci399testproject.utils.ReliabilityStats
 import com.example.compsci399testproject.utils.BssidVectorizer
 import com.example.compsci399testproject.machinelearning.LocationPredictor
 
@@ -117,8 +119,10 @@ fun ScanTool(wifiViewModel: WifiViewModel) {
     var predX     by remember { mutableStateOf<Float?>(null) }
     var predY     by remember { mutableStateOf<Float?>(null) }
 
-    // 平滑器：只平滑坐标，楼层通常不平滑（也可以做投票）
+    // 稳定化三件套
     val smoother = remember { PositionSmoother(alpha = 0.3f) }
+    val floorStabilizer = remember { FloorStabilizer(window = 5) }
+    val reliabilityStats = remember { ReliabilityStats() }
 
     // 你已有的扫描结果
     val wifiSignals = wifiViewModel.getResults()
@@ -128,20 +132,29 @@ fun ScanTool(wifiViewModel: WifiViewModel) {
         if (wifiSignals.isNotEmpty()) {
             try {
                 val feature = BssidVectorizer.toFeatureVector(context, wifiSignals)
-                val f = LocationPredictor.predictFloor(feature)
+                val startTime = System.currentTimeMillis()
+
+                // 原始ML预测
+                val fRaw = LocationPredictor.predictFloor(feature)
                 val xRaw = LocationPredictor.predictX(feature)
                 val yRaw = LocationPredictor.predictY(feature)
 
-                // 平滑一下坐标
-                val (sx, sy) = smoother.smooth(xRaw, yRaw)
+                // 使用稳定化组件
+                val fStable = floorStabilizer.stabilize(fRaw)
+                val (xSmooth, ySmooth) = smoother.smooth(xRaw, yRaw)
 
-                predFloor = f
-                predX = sx
-                predY = sy
+                // 更新UI状态
+                predFloor = fStable
+                predX = xSmooth
+                predY = ySmooth
 
-                // 可选 toast/日志
-                // Toast.makeText(context, "Pred F=$f  x=%.1f  y=%.1f".format(sx, sy), Toast.LENGTH_SHORT).show()
-                android.util.Log.d("Predict", "floor=$f, x=$sx, y=$sy")
+                // 统计跟踪
+                val responseTime = System.currentTimeMillis() - startTime
+                reliabilityStats.recordResponseTime(responseTime)
+                reliabilityStats.onFloorPrediction(fStable)
+
+                // 调试日志 - 显示改进前后对比
+                android.util.Log.d("Predict", "Raw: F=$fRaw X=$xRaw Y=$yRaw | Stable: F=$fStable X=$xSmooth Y=$ySmooth | Time:${responseTime}ms")
 
             } catch (t: Throwable) {
                 android.util.Log.w("Predict", "prediction failed: ${t.message}")
@@ -230,6 +243,37 @@ fun ScanTool(wifiViewModel: WifiViewModel) {
 
 
         Spacer(modifier = Modifier.height(25.dp))
+
+        // Reliability Improvement Display
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(8.dp),
+            colors = CardDefaults.cardColors(containerColor = colorResource(id = R.color.darker_white))
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Text(
+                    "WiFinder Reliability Improvements",
+                    style = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Bold),
+                    color = colorResource(id = R.color.dark_blue)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Current Prediction Display
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Floor: ${predFloor ?: "—"}", fontSize = 14.sp)
+                        Text("X: ${predX?.let { "%.1f".format(it) } ?: "—"}", fontSize = 14.sp)
+                        Text("Y: ${predY?.let { "%.1f".format(it) } ?: "—"}", fontSize = 14.sp)
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(reliabilityStats.snapshot(), fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
 
         // Capture Button
         Button(
