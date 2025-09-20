@@ -25,4 +25,25 @@ Thumbs.db
 .venv/
 venv/
 __pycache__/
+*.pyc# IDE / Project files
+.idea/
+*.iml
+local.properties
+
+# Build outputs
+**/build/
+**/captures/
+
+# Python venv
+.venv/
+venv/
+__pycache__/
 *.pyc
+
+# Kotlin logs
+.kotlin/
+*.log
+
+# OS junk
+.DS_Store
+Thumbs.db
