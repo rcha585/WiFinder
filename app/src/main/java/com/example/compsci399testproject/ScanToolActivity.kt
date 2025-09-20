@@ -6,6 +6,7 @@ import android.net.wifi.ScanResult
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -30,44 +31,40 @@ import com.example.compsci399testproject.utils.BssidVectorizer
 import com.example.compsci399testproject.utils.FloorStabilizer
 import com.example.compsci399testproject.utils.Net
 import com.example.compsci399testproject.utils.PositionSmoother
-import com.example.compsci399testproject.utils.ReliabilityStats
 import com.example.compsci399testproject.viewmodel.WifiViewModel
 import kotlinx.coroutines.*
+import kotlinx.coroutines.Dispatchers.Default
+import kotlinx.coroutines.Dispatchers.Main
+import kotlinx.coroutines.flow.collect
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.IOException
 
-
-
 @Composable
 fun ScanTool(wifiViewModel: WifiViewModel) {
+    // ====== Inputs ======
     var latitude by remember { mutableStateOf("") }
     var longitude by remember { mutableStateOf("") }
     var floorNumber by remember { mutableStateOf("") }
     var phoneId by remember { mutableStateOf("") }
 
-    var googleSheetLink by remember { mutableStateOf("https://script.google.com/macros/s/AKfycbx0OsDLTOoTGKY6BFvrgEdLOZud-8j4XtWUa5a6HW7fBYe3uNujxR-CNQ7XegUiMXsi1w/exec") }
+    var googleSheetLink by remember {
+        mutableStateOf(
+            "https://script.google.com/macros/s/AKfycbx0OsDLTOoTGKY6BFvrgEdLOZud-8j4XtWUa5a6HW7fBYe3uNujxR-CNQ7XegUiMXsi1w/exec"
+        )
+    }
 
-    val lastScanTime by wifiViewModel.lastScanTime
-
-    var timeSinceLastScan by remember { mutableStateOf("Never") }
-    var bestSignal by remember { mutableStateOf("") }
-    var timeSeconds by remember { mutableStateOf(0) }
-
-    // Launcher that requests the right runtime permissions and reports the result.
-    // NOTE: On Android 13+ we request NEARBY_WIFI_DEVICES; on older versions we
-    // request ACCESS_FINE_LOCATION because Wi-Fi scans are gated by location.
     val appContext = LocalContext.current.applicationContext
+    val context = LocalContext.current
 
+    // ====== Permissions ======
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { results ->
-        // results is a map<permission, granted?>
-        val denied = results.filterValues { granted -> !granted }.keys
+        val denied = results.filterValues { !it }.keys
         if (denied.isNotEmpty()) {
-            // Some permission(s) were denied; Wi-Fi scans may return empty results.
             Toast.makeText(
                 appContext,
                 "Permissions denied: ${denied.joinToString()}. Wi-Fi scan may fail.",
@@ -76,8 +73,8 @@ fun ScanTool(wifiViewModel: WifiViewModel) {
             Log.w("ScanTool", "Denied permissions: $denied")
         } else {
             Log.d("ScanTool", "All requested permissions granted.")
-        }}
-
+        }
+    }
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= 33) {
             launcher.launch(arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES))
@@ -86,112 +83,113 @@ fun ScanTool(wifiViewModel: WifiViewModel) {
         }
     }
 
-    // 1) 进页面必打
-    LaunchedEffect(Unit) {
-        android.util.Log.d("BssidVec", "hello ScanTool")
-    }
-    // 2) 打一次白名单大小
-    LaunchedEffect(Unit) {
-        val n = com.example.compsci399testproject.utils.BssidVectorizer.vocabSize(appContext)
-        android.util.Log.d("BssidVec", "screen start, whitelist size = $n")
-    }
-
+    // ====== Time since last scan ======
+    val lastScanTime by wifiViewModel.lastScanTime
+    var timeSinceLastScan by remember { mutableStateOf("Last scanned: never") }
     LaunchedEffect(lastScanTime) {
-        while (true) {
-            val now = System.currentTimeMillis()
-            timeSinceLastScan = if (lastScanTime != null) {
-                val seconds = (now - lastScanTime!!) / 1000.0
-                timeSeconds = seconds.toInt()
+        if (lastScanTime == null) {
+            timeSinceLastScan = "Last scanned: never"
+        }
+        while (isActive) {
+            val t = lastScanTime
+            timeSinceLastScan = if (t != null) {
+                val seconds = (System.currentTimeMillis() - t) / 1000.0
                 "Last scanned %.1f seconds ago".format(seconds)
             } else {
                 "Last scanned: never"
             }
-            delay(100)
+            delay(1000) // 1s tick，避免高频重组
         }
-    }
-
-    val introMessage = "Where are you?"
-
-    //Error handling.
-    val context = LocalContext.current
-    val showToast: (String) -> Unit = { msg ->
-        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
     }
 
     // ——可选：在界面上显示预测结果——
     var predFloor by remember { mutableStateOf<Int?>(null) }
-    var predX     by remember { mutableStateOf<Float?>(null) }
-    var predY     by remember { mutableStateOf<Float?>(null) }
+    var predX by remember { mutableStateOf<Float?>(null) }
+    var predY by remember { mutableStateOf<Float?>(null) }
 
     // 稳定化三件套
     val smoother = remember { PositionSmoother(alpha = 0.3f) }
     val floorStabilizer = remember { FloorStabilizer(window = 5) }
-    //val reliabilityStats = remember { ReliabilityStats() }
 
-    // 你已有的扫描结果
+    // 你已有的扫描结果（Compose 层只读）
     val wifiSignals = wifiViewModel.getResults()
 
-    // ①【新增】只负责打日志——无论本次扫描是否为空都会执行
+    // ====== Logging（后台）======
     LaunchedEffect(wifiSignals) {
-        // toFeatureVector 支持空列表，这里安全
-        val feature = BssidVectorizer.toFeatureVector(context, wifiSignals)
-        val vocabN  = BssidVectorizer.vocabSize(context)
-        val sizeN   = feature.size
-        val hits    = feature.count { it > -99.5f }
-        val misses  = sizeN - hits
-        val hitRate = if (sizeN > 0) "%.1f".format(100.0 * hits / sizeN) else "0.0"
-
-        val head8   = feature.take(8).joinToString(prefix = "[", postfix = "]") { "%.1f".format(it) }
-
-        android.util.Log.d(
-            "BssidVec",
-            "scan results=${wifiSignals.size}, vocab=$vocabN, featSize=$sizeN, " +
-                    "hits=$hits($hitRate%), misses=$misses, head8=$head8"
-        )
-    }
-
-    // 当扫描结果变化且非空时触发一次预测
-    LaunchedEffect(wifiSignals) {
-        if (wifiSignals.isNotEmpty()) {
-            try {
-                val feature = BssidVectorizer.toFeatureVector(context, wifiSignals)
-                val startTime = System.currentTimeMillis()
-
-                // 原始ML预测
-                val fRaw = LocationPredictor.predictFloor(feature)
-                val xRaw = LocationPredictor.predictX(feature)
-                val yRaw = LocationPredictor.predictY(feature)
-
-                // 使用稳定化组件
-                val fStable = floorStabilizer.stabilize(fRaw)
-                val (xSmooth, ySmooth) = smoother.smooth(xRaw, yRaw)
-
-                // 更新UI状态
-                predFloor = fStable
-                predX = xSmooth
-                predY = ySmooth
-
-                // 统计跟踪
-                val responseTime = System.currentTimeMillis() - startTime
-//                reliabilityStats.recordResponseTime(responseTime)
-//                reliabilityStats.onFloorPrediction(fStable)
-
-                // 调试日志 - 显示改进前后对比
-                android.util.Log.d("Predict", "Raw: F=$fRaw X=$xRaw Y=$yRaw | Stable: F=$fStable X=$xSmooth Y=$ySmooth | Time:${responseTime}ms")
-
-            } catch (t: Throwable) {
-                android.util.Log.w("Predict", "prediction failed: ${t.message}")
-            }
+        if (wifiSignals.isEmpty()) return@LaunchedEffect
+        withContext(Default) {
+            val feature = BssidVectorizer.toFeatureVector(context, wifiSignals)
+            val vocabN = BssidVectorizer.vocabSize(context)
+            val sizeN = feature.size
+            val hits = feature.count { it > -99.5f }
+            val hitRate = if (sizeN > 0) 100.0 * hits / sizeN else 0.0
+            val head8 = feature.take(8).joinToString(prefix = "[", postfix = "]") { "%.1f".format(it) }
+            Log.d(
+                "BssidVec",
+                "scan=${wifiSignals.size}, vocab=$vocabN, featSize=$sizeN, hits=$hits " +
+                        "(%.1f%%), head8=$head8".format(hitRate)
+            )
         }
     }
 
-    Column(modifier = Modifier
-        .fillMaxSize()
-        .background(colorResource(id = R.color.lighter_grey))
-        .padding(top = 10.dp)
-        .verticalScroll(rememberScrollState())
-        .navigationBarsPadding()
-        .imePadding(),
+    // ====== 预测节流 ======
+    var lastPredictAt by remember { mutableStateOf(0L) }
+    val minPredictIntervalMs = 500L
+
+    // 当扫描结果变化且非空时触发一次预测（后台计算 + 主线程更新）
+    LaunchedEffect(wifiSignals) {
+        if (wifiSignals.isEmpty()) return@LaunchedEffect
+
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastPredictAt < minPredictIntervalMs) return@LaunchedEffect
+        lastPredictAt = now
+
+        try {
+            val startNs = System.nanoTime()
+
+            // 重活放后台
+            val (fRaw, xRaw, yRaw) = withContext(Default) {
+                val feature = BssidVectorizer.toFeatureVector(context, wifiSignals)
+                Triple(
+                    LocationPredictor.predictFloor(feature),
+                    LocationPredictor.predictX(feature),
+                    LocationPredictor.predictY(feature)
+                )
+            }
+
+            // 稳定化（主线程即可）
+            val fStable = floorStabilizer.stabilize(fRaw)
+            val (xSmooth, ySmooth) = smoother.smooth(xRaw, yRaw)
+
+            predFloor = fStable
+            predX = xSmooth
+            predY = ySmooth
+
+            val costMs = (System.nanoTime() - startNs) / 1_000_000
+            Log.d(
+                "Predict",
+                "Raw F=$fRaw X=$xRaw Y=$yRaw | Stable F=$fStable X=$xSmooth Y=$ySmooth | ${costMs}ms"
+            )
+        } catch (t: Throwable) {
+            Log.w("Predict", "prediction failed: ${t.message}")
+        }
+    }
+
+    // ====== UI ======
+    val introMessage = "Where are you?"
+
+    val showToast: (String) -> Unit = { msg ->
+        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(colorResource(id = R.color.lighter_grey))
+            .padding(top = 10.dp)
+            .verticalScroll(rememberScrollState())
+            .navigationBarsPadding()
+            .imePadding(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
@@ -199,46 +197,39 @@ fun ScanTool(wifiViewModel: WifiViewModel) {
             color = colorResource(id = R.color.dark_blue),
             fontWeight = FontWeight(600),
             fontFamily = FontFamily.SansSerif,
-            style = TextStyle(
-                fontSize = 24.sp
-            ) ,
-            modifier = Modifier.padding(0.dp, 10.dp, 0.dp, 0.dp)
+            style = TextStyle(fontSize = 24.sp),
+            modifier = Modifier.padding(top = 10.dp)
         )
 
         Spacer(Modifier.height(16.dp))
 
+        // Best signal（轻量）
         val strongestSignal = wifiSignals.maxByOrNull { it.level }
-        bestSignal = if (strongestSignal != null) {
+        val bestSignal = strongestSignal?.let {
             """Best:
-                SSID: ${strongestSignal.SSID}
-                Signal Strength: ${strongestSignal.level} dbm
+                SSID: ${it.SSID}
+                Signal Strength: ${it.level} dbm
             """.trimIndent()
-        } else {
-            "No WiFi signals found."
-        }
-
+        } ?: "No WiFi signals found."
 
         Text(
             text = bestSignal,
             style = TextStyle(fontSize = 16.sp),
             color = colorResource(id = R.color.dark_blue),
-            modifier = Modifier.padding(0.dp, 0.dp, 0.dp, 10.dp)
+            modifier = Modifier.padding(bottom = 10.dp)
         )
-
 
         Text(
             text = timeSinceLastScan,
             style = TextStyle(fontSize = 16.sp),
             color = colorResource(id = R.color.dark_blue),
-            modifier = Modifier.padding(0.dp, 0.dp, 0.dp, 10.dp)
+            modifier = Modifier.padding(bottom = 10.dp)
         )
-
-        Spacer(modifier = Modifier.height(0.dp))
 
         Column(
             verticalArrangement = Arrangement.spacedBy(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(horizontal=32.dp)
+            modifier = Modifier.padding(horizontal = 32.dp)
         ) {
             OutlinedTextField(
                 value = longitude,
@@ -269,7 +260,6 @@ fun ScanTool(wifiViewModel: WifiViewModel) {
             )
         }
 
-
         Spacer(modifier = Modifier.height(25.dp))
 
         // Reliability Improvement Display
@@ -287,7 +277,6 @@ fun ScanTool(wifiViewModel: WifiViewModel) {
                 )
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Current Prediction Display
                 Row(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Floor: ${predFloor ?: "—"}", fontSize = 14.sp)
@@ -319,6 +308,7 @@ fun ScanTool(wifiViewModel: WifiViewModel) {
                     googleSheetLink
                 )
             },
+            enabled = wifiSignals.isNotEmpty(),
             colors = ButtonDefaults.buttonColors(
                 containerColor = colorResource(id = R.color.dark_blue),
                 contentColor = colorResource(id = R.color.darker_white)
@@ -327,18 +317,12 @@ fun ScanTool(wifiViewModel: WifiViewModel) {
                 .height(50.dp)
                 .width(250.dp)
         ) {
-            Text(text = "Capture",
-                style = TextStyle(fontSize = 24.sp)
-            )
+            Text(text = "Capture", style = TextStyle(fontSize = 24.sp))
         }
 
         Spacer(modifier = Modifier.height(60.dp))
     }
-
-
 }
-
-
 
 //////////////////////////////////////////////////////////////////
 //                      YOUR CHANGES BELOW                      //
@@ -347,9 +331,6 @@ fun ScanTool(wifiViewModel: WifiViewModel) {
 // captureData() is run when the "capture" button is pressed.
 // WiFi scan results are collected and pushed to the Google Sheet.
 //
-// By default, the scan results are observed for 10 seconds. This will
-// only work if WiFi throttling is turned off, otherwise you will
-// miss captures due to the scan cooldown time.
 fun captureData(
     context: Context,
     latitudeInput: String,
@@ -364,30 +345,27 @@ fun captureData(
         onError("Invalid Latitude.")
         return
     }
-
     val longitude = longitudeInput.toFloatOrNull() ?: run {
         onError("Invalid Longitude.")
         return
     }
-
     val floor = floorNumberInput.trim().ifEmpty {
         onError("Please enter a floor.")
         return
     }
-
     val phoneId = phoneIdInput.trim().ifEmpty {
         onError("Please enter a phone ID.")
         return
     }
 
+    // 触发一次扫描
     wifiViewModel.scan()
 
-    // Observe scan results until we get some (max 10 seconds)
-    CoroutineScope(Dispatchers.Main).launch {
-        val timeout = withTimeoutOrNull(20000) {   // 20s 更稳
+    // 观察结果（最多 20s），拿到第一批就上传
+    CoroutineScope(Main).launch {
+        val ok = withTimeoutOrNull(20_000) {
             wifiViewModel.scanResults.collect { results ->
                 if (results.isNotEmpty()) {
-                    // 立刻上传，别再卡在“必须和上一次不同”
                     sendResultsToWebApp(
                         context = context,
                         latitude = latitude,
@@ -398,20 +376,16 @@ fun captureData(
                         webAppUrl = webAppUrl,
                         onError = onError
                     )
-                    cancel() // 成功后停止收集
+                    this.cancel() // 成功后停止收集
                 }
             }
         }
-
-        if (timeout == null) {
-            onError("WiFi scan timed out.")
-        }
+        if (ok == null) onError("WiFi scan timed out.")
     }
 }
 //////////////////////////////////////////////////////////////////
 //                      YOUR CHANGES ABOVE                      //
 //////////////////////////////////////////////////////////////////
-
 
 fun sendResultsToWebApp(
     context: Context,
@@ -424,15 +398,11 @@ fun sendResultsToWebApp(
     onError: (String) -> Unit
 ) {
     val signals = JSONObject()
-    results.forEach {
-        if (it.SSID in listOf("eduroam", "UoA-Guest-WiFi", "UoA-WiFi")) {
-            val signalName = it.BSSID + "(${it.SSID})"
-            signals.put(signalName, it.level)
-        }
+    results.forEach { ap ->
+        val signalName = "${ap.BSSID}(${ap.SSID})"
+        signals.put(signalName, ap.level)
     }
 
-
-    // convert system millis to time
     val currentTime = System.currentTimeMillis()
     val time = java.text.SimpleDateFormat("HH:mm:ss").format(currentTime)
 
@@ -454,8 +424,6 @@ fun sendResultsToWebApp(
         .post(body)
         .build()
 
-    Log.d("request", "Sending request: $request")
-
     Net.http.newCall(request).enqueue(object : Callback {
         override fun onFailure(call: Call, e: IOException) {
             Handler(Looper.getMainLooper()).post {
@@ -464,7 +432,6 @@ fun sendResultsToWebApp(
         }
 
         override fun onResponse(call: Call, response: Response) {
-            // 一定要关闭 response，避免连接泄漏
             response.use { resp ->
                 Handler(Looper.getMainLooper()).post {
                     if (resp.isSuccessful) {
@@ -480,8 +447,20 @@ fun sendResultsToWebApp(
 
 @Composable
 fun DebugPanel(vm: WifiViewModel) {
+    var lastClick by remember { mutableStateOf(0L) }
+    val minIntervalMs = 5000L
+
     Column(Modifier.padding(12.dp)) {
-        Button(onClick = { vm.scan() }) { Text("Scan Now") }
+        Button(onClick = {
+            val now = System.currentTimeMillis()
+            if (now - lastClick < minIntervalMs) {
+                // 前端防抖，避免手动连点导致间隔 <5s
+                return@Button
+            }
+            lastClick = now
+            vm.scan()  // -> WifiScanner.scanWifi()，内部也有网关与超时兜底
+        }) { Text("Scan Now") }
+
         Spacer(Modifier.height(8.dp))
 
         Button(onClick = { vm.enableSmoothing = !vm.enableSmoothing }) {
@@ -494,18 +473,15 @@ fun DebugPanel(vm: WifiViewModel) {
         }
         Spacer(Modifier.height(8.dp))
 
-        // —— CSV ——（任选其一命名；跑 A/B 时换个名字方便区分）
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Button(onClick = { vm.startCsvLogging("baseline") }) { Text("Start CSV (Baseline)") }
             Button(onClick = { vm.stopCsvLogging() }) { Text("Stop CSV") }
         }
         Spacer(Modifier.height(8.dp))
 
-        // 关键统计（来自 VM.statsText）
         Text("Stats: ${vm.statsText.value}")
         Text("Raw XY: ${vm.rawXY.value}")
         Text("Stable XY: ${vm.stableXY.value}")
         Text("Floor Raw/Stable: ${vm.rawFloor.value}/${vm.stableFloor.value}")
     }
 }
-
