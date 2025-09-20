@@ -11,6 +11,7 @@ import androidx.lifecycle.AndroidViewModel
 import com.example.compsci399testproject.utils.PositionSmoother
 import com.example.compsci399testproject.utils.ReliabilityStats
 import com.example.compsci399testproject.utils.WifiScanner
+import com.example.compsci399testproject.utils.BssidVectorizer
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -25,18 +26,18 @@ class WifiViewModel(application: Application) : AndroidViewModel(application) {
         it.attachReliabilityStats(stats)
     }
 
-    // ---- runtime toggles（Phase-4 对比时会用到；现在默认全开即可） ----
+    // ---- runtime toggles ----
     var enableSmoothing by mutableStateOf(true)
     var enableFloorHysteresis by mutableStateOf(true)
 
     // ---- stabilizers ----
     private val smoother = PositionSmoother(alpha = 0.30f)
 
-    // 内建简易楼层迟滞器：窗口多数投票 + 迟滞 1 层
+    // 内建简易楼层迟滞器
     private val floorWindow = ArrayDeque<Int>()
     private val floorWindowSize = 5
     private var lastStableFloor: Int? = null
-    private val floorHysteresis = 1  // 相差 <= 1 层时不跳
+    private val floorHysteresis = 1
 
     // ---- stats for UI ----
     private val _statsText = mutableStateOf("n/a")
@@ -117,16 +118,18 @@ class WifiViewModel(application: Application) : AndroidViewModel(application) {
     var scanResults = scanner.scanResults
     private var lastUploadedResults: Map<String, Int>? = null
 
-    private var accessPoints = mutableListOf<String>()
+    // 新：我们不再手动维护 accessPoints/macAddresses.csv
+    // 保持一个“当前特征向量”的副本给 UI/调试用
     private var strengthArray = mutableListOf<Float>()
 
     init {
-        // 载入 AP 列表
-        val fileName = "macAddresses.csv"
-        val inputStream = application.assets.open(fileName)
-        val reader = inputStream.bufferedReader()
-        val firstLine = reader.readLine()
-        this.accessPoints = firstLine.split(",").toMutableList()
+        // 让向量化器加载 assets/bssid_whitelist_order.txt
+        // （只会加载一次，内部有缓存）
+        BssidVectorizer.ensureLoaded(appContext)
+
+        // 初始化一个全 -100 的向量，长度 = 词表大小
+        val dim = BssidVectorizer.vocabSize(appContext)
+        strengthArray = MutableList(dim) { -100f }
     }
 
     // ====== public API ======
@@ -155,26 +158,26 @@ class WifiViewModel(application: Application) : AndroidViewModel(application) {
         _lastScanTime.value = System.currentTimeMillis()
         this.scanResults = scanner.scanResults
 
-        // 1) 你的原始处理：向量化强度数组
+        // 1) 使用统一的向量化（顺序与训练完全一致；缺失=-100）
         convertResultsToStrengthArray()
 
-        // 1.5) 空结果保护
-        val noValid = strengthArray.all { it == 100f }
+        // 1.5) 空结果保护（全部缺失）
+        val noValid = strengthArray.all { it <= -99.5f }
         if (scanResults.value.isEmpty() || noValid) {
             refreshStatsText()
             appendCsvRow()
             return
         }
 
-        // 2) 从 Wi-Fi 结果推导“原始坐标/楼层”（占位逻辑，之后替换成真实预测）
-        val rawX = strengthArray.indexOfFirst { it != 100f }.coerceAtLeast(0).toFloat()
-        val rawY = strengthArray.count { it != 100f }.toFloat()
+        // 2) 占位推理（后续替换为真实模型输出）
+        val rawX = strengthArray.indexOfFirst { it > -100f }.coerceAtLeast(0).toFloat()
+        val rawY = strengthArray.count { it > -100f }.toFloat()
         val rawFloorGuess = 0
 
         _rawXY.value = rawX to rawY
         _rawFloor.value = rawFloorGuess
 
-        // 3) 稳定化（可开关）
+        // 3) 稳定化
         val (sx, sy) = if (enableSmoothing) smoother.smooth(rawX, rawY) else (rawX to rawY)
         _stableXY.value = sx to sy
 
@@ -189,16 +192,12 @@ class WifiViewModel(application: Application) : AndroidViewModel(application) {
     // ====== internal helpers ======
 
     private fun convertResultsToStrengthArray() {
-        strengthArray.clear()
-        repeat(accessPoints.size) { strengthArray.add(100f) }
-
-        for (result in scanResults.value) {
-            val signalName = result.BSSID + "(${result.SSID})"
-            val level = result.level.toFloat()
-            val index = accessPoints.indexOf(signalName)
-            if (index != -1) strengthArray[index] = level
+        val vec: FloatArray = BssidVectorizer.toFeatureVector(appContext, scanResults.value)
+        // 复制到可变 List，便于 UI 使用
+        if (strengthArray.size != vec.size) {
+            strengthArray = MutableList(vec.size) { -100f }
         }
-        // 如需调试保存：writeStrengthArrayToFile()
+        for (i in vec.indices) strengthArray[i] = vec[i]
     }
 
     private fun refreshStatsText() {
@@ -212,11 +211,10 @@ class WifiViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 "$k=$s"
             }
-    } // <- ★ 这里必须闭合！
+    }
 
-    // 多数投票 + 迟滞（相邻层差 <= 1 时不切换）
+    // 多数投票 + 迟滞
     private fun applyFloorHysteresis(rawFloor: Int): Int {
-        // 窗口多数投票
         floorWindow.addLast(rawFloor)
         if (floorWindow.size > floorWindowSize) floorWindow.removeFirst()
         val voted = floorWindow
@@ -234,13 +232,11 @@ class WifiViewModel(application: Application) : AndroidViewModel(application) {
         return stable
     }
 
-
     fun getStrengthArray(): List<Float> = strengthArray
 
     fun writeStrengthArrayToFile() {
         val fileName = "strengthArray.csv"
-        val downloadsDir =
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
         val file = File(downloadsDir, fileName)
         file.bufferedWriter().use { w ->
             w.write(strengthArray.joinToString(","))
