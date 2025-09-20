@@ -1,11 +1,11 @@
 package com.example.compsci399testproject.viewmodel
 
-import android.content.Context
+import android.app.Application
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 
 class WifiScannerViewModelFactory(
-    private val application: Context
+    private val application: Application
 ) : ViewModelProvider.Factory {
 
     @Suppress("UNCHECKED_CAST")
@@ -13,6 +13,6 @@ class WifiScannerViewModelFactory(
         if (modelClass.isAssignableFrom(WifiViewModel::class.java)) {
             return WifiViewModel(application) as T
         }
-        throw IllegalArgumentException("Unknown ViewModel class")
+        throw IllegalArgumentException("UUnknown ViewModel class: ${modelClass.name}")
     }
 }

@@ -32,7 +32,7 @@ class LocationPredictor() {
         }
 
         fun  predictFloor(input: FloatArray) : Int {
-            val predictionScores: DoubleArray = FloorRandomForest.score(input)
+            val predictionScores: DoubleArray = FloorRandomForest.score(input.toDoubleArray())
             var predictedClassIndex = -1
             var maxScore = Double.NEGATIVE_INFINITY
 

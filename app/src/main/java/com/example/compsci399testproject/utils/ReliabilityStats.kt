@@ -6,18 +6,26 @@ package com.example.compsci399testproject.utils
  */
 class ReliabilityStats {
     // Upload tracking
-    var totalUploads = 0; private set
-    var uploadFailures = 0; private set
-    var lastMaxRssi: Int? = null; private set
+    var totalUploads = 0
+        private set
+    var uploadFailures = 0
+        private set
+    var lastMaxRssi: Int? = null
+        private set
 
     // Scan tracking
-    var scanAttempts = 0; private set
-    var scanSuccesses = 0; private set
-    var scanFailures = 0; private set
+    var scanAttempts = 0
+        private set
+    var scanSuccesses = 0
+        private set
+    var scanFailures = 0
+        private set
 
     // Floor stability tracking
-    var floorChanges = 0; private set
-    var lastPredictedFloor: Int? = null; private set
+    var floorChanges = 0
+        private set
+    var lastPredictedFloor: Int? = null
+        private set
 
     // Response time tracking
     private val responseTimes = mutableListOf<Long>()
@@ -54,7 +62,8 @@ class ReliabilityStats {
     fun recordResponseTime(timeMs: Long) {
         responseTimes.add(timeMs)
         if (responseTimes.size > maxResponseTimeHistory) {
-            responseTimes.removeFirst()
+            // 兼容性更好的移除首元素写法
+            responseTimes.removeAt(0)
         }
     }
 
@@ -76,28 +85,52 @@ class ReliabilityStats {
         val uploadRate = (getUploadSuccessRate() * 100).toInt()
         val avgResponse = getAverageResponseTime().toInt()
 
-        return "Scan:$scanRate% Upload:$uploadRate% Resp:${avgResponse}ms FloorChanges:$floorChanges RSSI:${lastMaxRssi ?: "n/a"}"
+        return "Scan:$scanRate% Upload:$uploadRate% Resp:${avgResponse}ms " +
+                "FloorChanges:$floorChanges RSSI:${lastMaxRssi ?: "n/a"}"
     }
 
     fun detailedReport(): String {
+        val scanRatePct = (getScanSuccessRate() * 100).toInt()
+        val uploadRatePct = (getUploadSuccessRate() * 100).toInt()
+        val avgResponse = getAverageResponseTime().toInt()
+
         return """
             |=== WiFinder Reliability Report ===
             |Scanning:
             |  Attempts: $scanAttempts
-            |  Successes: $scanSuccesses ($scanSuccessRate%)
+            |  Successes: $scanSuccesses ($scanRatePct%)
             |  Failures: $scanFailures
             |
             |Uploads:
             |  Successes: $totalUploads
-            |  Failures: $uploadFailures (${getUploadSuccessRate()}%)
+            |  Failures: $uploadFailures ($uploadRatePct%)
             |
             |Floor Stability:
             |  Changes: $floorChanges
             |  Last Floor: ${lastPredictedFloor ?: "n/a"}
             |
             |Performance:
-            |  Avg Response: ${getAverageResponseTime().toInt()}ms
-            |  Last Max RSSI: ${lastMaxRssi ?: "n/a"}dBm
+            |  Avg Response: ${avgResponse}ms
+            |  Last Max RSSI: ${lastMaxRssi ?: "n/a"} dBm
         """.trimMargin()
     }
+
+    fun snapshotMap(): Map<String, Any> = mapOf(
+        // 扫描
+        "scanAttempts" to scanAttempts,
+        "scanSuccesses" to scanSuccesses,
+        "scanFailures" to scanFailures,
+        "scanSuccessRate" to getScanSuccessRate(),     // 0.0 ~ 1.0
+        // 上传
+        "uploadSuccesses" to totalUploads,
+        "uploadFailures" to uploadFailures,
+        "uploadSuccessRate" to getUploadSuccessRate(), // 0.0 ~ 1.0
+        // 楼层稳定
+        "floorChanges" to floorChanges,
+        "lastPredictedFloor" to (lastPredictedFloor ?: -999),
+        // 性能
+        "avgResponseTimeMs" to getAverageResponseTime(),
+        "lastMaxRssi" to (lastMaxRssi ?: Int.MIN_VALUE)
+    )
+
 }
