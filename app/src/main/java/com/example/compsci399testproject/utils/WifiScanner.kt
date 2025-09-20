@@ -34,7 +34,11 @@ class WifiScanner(private val context: Context, wifiViewModel: WifiViewModel) {
     private val handler = Handler(Looper.getMainLooper())
 
     // Reliability tracking - can be injected later
-    var reliabilityStats: ReliabilityStats? = null
+    private var reliabilityStats: ReliabilityStats? = null
+
+    fun attachReliabilityStats(stats: ReliabilityStats) {
+        reliabilityStats = stats
+    }
 
     init {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -45,11 +49,12 @@ class WifiScanner(private val context: Context, wifiViewModel: WifiViewModel) {
                             Manifest.permission.ACCESS_FINE_LOCATION
                         ) == PackageManager.PERMISSION_GRANTED
                     ) {
-                        val results =  wifiManager.scanResults
-
+                        val results = wifiManager.scanResults
                         _scanResults.value = results
                         wifiViewModel.updateScanResults()
 
+                        currentRetryCount = 0
+                        reliabilityStats?.onScanSuccess()
                     }
                 }
             }
@@ -79,7 +84,6 @@ class WifiScanner(private val context: Context, wifiViewModel: WifiViewModel) {
                         _scanResults.value = results
                         wifiViewModel.updateScanResults()
 
-                        // Success - reset retry count and update stats
                         currentRetryCount = 0
                         reliabilityStats?.onScanSuccess()
                         Log.d("wifiScan", "WiFi scan successful, ${results.size} networks found")
@@ -89,19 +93,10 @@ class WifiScanner(private val context: Context, wifiViewModel: WifiViewModel) {
                 }
             }
             val intentFilter = IntentFilter(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION)
-
-
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                context.registerReceiver(
-                    legacyReceiver,
-                    intentFilter,
-                    Context.RECEIVER_NOT_EXPORTED
-                )
+                context.registerReceiver(legacyReceiver, intentFilter, Context.RECEIVER_NOT_EXPORTED)
             } else {
-                context.registerReceiver(
-                    legacyReceiver,
-                    intentFilter
-                )
+                context.registerReceiver(legacyReceiver, intentFilter)
             }
         }
     }
@@ -109,7 +104,8 @@ class WifiScanner(private val context: Context, wifiViewModel: WifiViewModel) {
     fun scanWifi() {
         reliabilityStats?.onScanAttempt()
 
-        if (ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+        if (ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION)
+            == PackageManager.PERMISSION_GRANTED) {
             @Suppress("DEPRECATION")
             val scanStarted = wifiManager.startScan()
             Log.d("wifiScan", "WiFi scan initiated. Success: $scanStarted")
@@ -130,37 +126,37 @@ class WifiScanner(private val context: Context, wifiViewModel: WifiViewModel) {
 
         if (currentRetryCount < maxRetries) {
             currentRetryCount++
-            val retryDelay = baseRetryDelay * currentRetryCount // Exponential backoff
+            val retryDelay = baseRetryDelay * currentRetryCount
 
             handler.postDelayed({
                 Log.d("wifiScan", "Retrying scan (attempt $currentRetryCount)...")
                 scanWifi()
             }, retryDelay)
 
-            Toast.makeText(context, "WiFi scan failed, retrying... ($currentRetryCount/$maxRetries)",
-                Toast.LENGTH_SHORT).show()
+            Toast.makeText(
+                context,
+                "WiFi scan failed, retrying... ($currentRetryCount/$maxRetries)",
+                Toast.LENGTH_SHORT
+            ).show()
         } else {
-            // All retries exhausted
             currentRetryCount = 0
-            Toast.makeText(context, "WiFi scan failed after $maxRetries attempts",
-                Toast.LENGTH_LONG).show()
+            Toast.makeText(
+                context,
+                "WiFi scan failed after $maxRetries attempts",
+                Toast.LENGTH_LONG
+            ).show()
             Log.e("wifiScan", "WiFi scan failed after $maxRetries attempts: $reason")
         }
     }
 
-    fun setReliabilityStats(stats: ReliabilityStats) {
-        this.reliabilityStats = stats
-    }
+    fun getStatsSnapshot(): Map<String, Any> =
+        reliabilityStats?.snapshotMap() ?: emptyMap<String, Any>()
 
     fun cleanup() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            modernCallback?.let {
-                wifiManager.unregisterScanResultsCallback(it)
-            }
+            modernCallback?.let { wifiManager.unregisterScanResultsCallback(it) }
         } else {
-            legacyReceiver?.let {
-                context.unregisterReceiver(it)
-            }
+            legacyReceiver?.let { context.unregisterReceiver(it) }
         }
     }
 }

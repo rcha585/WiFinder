@@ -86,7 +86,7 @@ class MainActivity : ComponentActivity() {
             1001
         )
 
-        val factory = WifiScannerViewModelFactory(applicationContext)
+        val factory = WifiScannerViewModelFactory(application)
         wifiViewModel = ViewModelProvider(this, factory)[WifiViewModel::class.java]
 
         val mapFactory = MapViewModelFactory(wifiViewModel)

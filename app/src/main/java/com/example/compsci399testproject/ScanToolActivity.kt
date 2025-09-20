@@ -1,50 +1,44 @@
 package com.example.compsci399testproject
 
+import android.Manifest
 import android.content.Context
+import android.net.wifi.ScanResult
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import android.util.Log // Used for testing/bugfixes.
+import android.util.Log
 import android.widget.Toast
-import android.net.wifi.ScanResult
-
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.example.compsci399testproject.machinelearning.LocationPredictor
+import com.example.compsci399testproject.utils.BssidVectorizer
+import com.example.compsci399testproject.utils.FloorStabilizer
+import com.example.compsci399testproject.utils.Net
+import com.example.compsci399testproject.utils.PositionSmoother
+import com.example.compsci399testproject.utils.ReliabilityStats
 import com.example.compsci399testproject.viewmodel.WifiViewModel
-
 import kotlinx.coroutines.*
-
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
-
 import org.json.JSONObject
 import java.io.IOException
 
-import android.Manifest
-import android.os.Build
-
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-
-import com.example.compsci399testproject.utils.Net
-import com.example.compsci399testproject.utils.PositionSmoother
-import com.example.compsci399testproject.utils.FloorStabilizer
-import com.example.compsci399testproject.utils.ReliabilityStats
-import com.example.compsci399testproject.utils.BssidVectorizer
-import com.example.compsci399testproject.machinelearning.LocationPredictor
 
 
 @Composable
@@ -132,7 +126,7 @@ fun ScanTool(wifiViewModel: WifiViewModel) {
     // 稳定化三件套
     val smoother = remember { PositionSmoother(alpha = 0.3f) }
     val floorStabilizer = remember { FloorStabilizer(window = 5) }
-    val reliabilityStats = remember { ReliabilityStats() }
+    //val reliabilityStats = remember { ReliabilityStats() }
 
     // 你已有的扫描结果
     val wifiSignals = wifiViewModel.getResults()
@@ -179,8 +173,8 @@ fun ScanTool(wifiViewModel: WifiViewModel) {
 
                 // 统计跟踪
                 val responseTime = System.currentTimeMillis() - startTime
-                reliabilityStats.recordResponseTime(responseTime)
-                reliabilityStats.onFloorPrediction(fStable)
+//                reliabilityStats.recordResponseTime(responseTime)
+//                reliabilityStats.onFloorPrediction(fStable)
 
                 // 调试日志 - 显示改进前后对比
                 android.util.Log.d("Predict", "Raw: F=$fRaw X=$xRaw Y=$yRaw | Stable: F=$fStable X=$xSmooth Y=$ySmooth | Time:${responseTime}ms")
@@ -194,8 +188,11 @@ fun ScanTool(wifiViewModel: WifiViewModel) {
     Column(modifier = Modifier
         .fillMaxSize()
         .background(colorResource(id = R.color.lighter_grey))
-        .padding(0.dp, 10.dp, 0.dp, 0.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+        .padding(top = 10.dp)
+        .verticalScroll(rememberScrollState())
+        .navigationBarsPadding()
+        .imePadding(),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
             text = introMessage,
@@ -204,9 +201,11 @@ fun ScanTool(wifiViewModel: WifiViewModel) {
             fontFamily = FontFamily.SansSerif,
             style = TextStyle(
                 fontSize = 24.sp
-            ),
+            ) ,
             modifier = Modifier.padding(0.dp, 10.dp, 0.dp, 0.dp)
         )
+
+        Spacer(Modifier.height(16.dp))
 
         val strongestSignal = wifiSignals.maxByOrNull { it.level }
         bestSignal = if (strongestSignal != null) {
@@ -296,11 +295,13 @@ fun ScanTool(wifiViewModel: WifiViewModel) {
                         Text("Y: ${predY?.let { "%.1f".format(it) } ?: "—"}", fontSize = 14.sp)
                     }
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(reliabilityStats.snapshot(), fontSize = 12.sp)
+                        Text(wifiViewModel.statsText.value, fontSize = 12.sp)
                     }
                 }
             }
         }
+
+        DebugPanel(wifiViewModel)
 
         Spacer(modifier = Modifier.height(10.dp))
 
@@ -476,3 +477,35 @@ fun sendResultsToWebApp(
         }
     })
 }
+
+@Composable
+fun DebugPanel(vm: WifiViewModel) {
+    Column(Modifier.padding(12.dp)) {
+        Button(onClick = { vm.scan() }) { Text("Scan Now") }
+        Spacer(Modifier.height(8.dp))
+
+        Button(onClick = { vm.enableSmoothing = !vm.enableSmoothing }) {
+            Text(if (vm.enableSmoothing) "Smoothing: ON" else "Smoothing: OFF")
+        }
+        Spacer(Modifier.height(8.dp))
+
+        Button(onClick = { vm.enableFloorHysteresis = !vm.enableFloorHysteresis }) {
+            Text(if (vm.enableFloorHysteresis) "Hysteresis: ON" else "Hysteresis: OFF")
+        }
+        Spacer(Modifier.height(8.dp))
+
+        // —— CSV ——（任选其一命名；跑 A/B 时换个名字方便区分）
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Button(onClick = { vm.startCsvLogging("baseline") }) { Text("Start CSV (Baseline)") }
+            Button(onClick = { vm.stopCsvLogging() }) { Text("Stop CSV") }
+        }
+        Spacer(Modifier.height(8.dp))
+
+        // 关键统计（来自 VM.statsText）
+        Text("Stats: ${vm.statsText.value}")
+        Text("Raw XY: ${vm.rawXY.value}")
+        Text("Stable XY: ${vm.stableXY.value}")
+        Text("Floor Raw/Stable: ${vm.rawFloor.value}/${vm.stableFloor.value}")
+    }
+}
+
