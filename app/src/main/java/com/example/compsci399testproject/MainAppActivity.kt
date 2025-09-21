@@ -50,6 +50,8 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.times // ★ Float * Dp / Dp * Float 的扩展在这里
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.compsci399testproject.utils.NavigationGraph
 import com.example.compsci399testproject.utils.Node
@@ -59,10 +61,23 @@ import com.example.compsci399testproject.utils.initialiseGraph
 import com.example.compsci399testproject.viewmodel.CameraLockState
 import com.example.compsci399testproject.viewmodel.MapViewModel
 import com.example.compsci399testproject.viewmodel.UIState
+import com.example.compsci399testproject.viewmodel.WifiViewModel
 import kotlin.math.PI
 import kotlin.math.absoluteValue
 import kotlin.math.cos
 import kotlin.math.sin
+
+// ================= Factory（同文件内，避免再建新文件）=================
+class MapViewModelFactory(private val wifiVM: WifiViewModel) : ViewModelProvider.Factory {
+    @Suppress("UNCHECKED_CAST")
+    override fun <T : ViewModel> create(modelClass: Class<T>): T {
+        if (modelClass.isAssignableFrom(MapViewModel::class.java)) {
+            return MapViewModel(wifiVM) as T
+        }
+        throw IllegalArgumentException("Unknown ViewModel class ${modelClass.name}")
+    }
+}
+// =====================================================================
 
 @Composable
 fun MapImageView(
@@ -94,9 +109,15 @@ fun MapImageView(
             val path = "Building 302/Tiles/Floor $floor/Floor$floor.png"
             context.assets.open(path).use { BitmapFactory.decodeStream(it).asImageBitmap() }
         } catch (e: Exception) {
-            Toast.makeText(context, "Could not find floor image", Toast.LENGTH_SHORT).show()
-            context.assets.open("Building 302/image_not_found.png")
-                .use { BitmapFactory.decodeStream(it).asImageBitmap() }
+            try {
+                context.assets.open("Building 302/image_not_found.png")
+                    .use { BitmapFactory.decodeStream(it).asImageBitmap() }
+            } catch (e2: Exception) {
+                // 仍失败则给一个 1x1 的空位图，避免崩溃
+                android.graphics.Bitmap.createBitmap(
+                    1, 1, android.graphics.Bitmap.Config.ARGB_8888
+                ).asImageBitmap()
+            }
         }
     }
 
@@ -549,7 +570,15 @@ fun NavigationTopBar(
 }
 
 @Composable
-fun MapView(viewModel: MapViewModel = viewModel()) {
+fun MapView(
+    mapViewModel: MapViewModel = run {
+        // 先取到同作用域下的 WifiViewModel
+        val wifiVM: WifiViewModel = viewModel()
+        // 再用 Factory 创建需要依赖的 MapViewModel
+        viewModel(factory = MapViewModelFactory(wifiVM))
+    }
+) {
+    val viewModel = mapViewModel
     val context = LocalContext.current
     val currentFocusManager = LocalFocusManager.current
     val displayMetrics = context.resources.displayMetrics

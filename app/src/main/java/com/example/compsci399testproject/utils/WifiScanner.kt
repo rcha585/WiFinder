@@ -51,7 +51,7 @@ class WifiScanner(
     private var inFlight = false
     private var lastScanStart = 0L
 
-    private val minScanIntervalMs = 5_000L     // 触发间隔下限
+    private val minScanIntervalMs = 8_000L     // 触发间隔下限
     private val scanTimeoutMs = 8_000L         // 单轮超时
 
     // 指数退避
@@ -135,7 +135,21 @@ class WifiScanner(
         Log.d(tag, "startScan() -> $ok")
 
         if (!ok) {
-            onScanFailed("startScan() returned false (maybe throttled)")
+            val elapsed = System.currentTimeMillis() - lastScanStart
+            // 一次缓存回退（多数机型会留有上一次的结果）
+            val cached = try { wifiManager.scanResults ?: emptyList() } catch (_: Exception) { emptyList() }
+            if (cached.isNotEmpty()) {
+                val maxRssi = cached.maxOfOrNull { it.level }
+                reliabilityStats?.onScanSuccess(maxRssi, elapsed)
+                inFlight = false
+                appHandler.post {
+                    _scanResults.value = cached
+                    try { wifiViewModel.updateScanResults() } catch (_: Exception) {}
+                    Log.d(tag, "scan OK (cache fallback): ${cached.size} APs, maxRSSI=${maxRssi ?: "n/a"} elapsed=${elapsed}ms")
+                }
+            } else {
+                onScanFailed("startScan=false (throttled) & cacheEmpty")
+            }
             return
         }
 
@@ -156,6 +170,9 @@ class WifiScanner(
             return
         }
 
+        val now = System.currentTimeMillis()
+        val elapsed = now - lastScanStart
+
         val results: List<ScanResult> = try {
             wifiManager.scanResults ?: emptyList()
         } catch (se: SecurityException) {
@@ -171,8 +188,10 @@ class WifiScanner(
             return
         }
 
-        // 成功：切回主线程更新 StateFlow + 通知 VM
-        reliabilityStats?.onScanSuccess()
+        val maxRssi = results.maxOfOrNull { it.level }   // dBm，可能为负
+
+        // 成功：更新统计（把 maxRssi 和 elapsed 写入），并落地到 VM
+        reliabilityStats?.onScanSuccess(maxRssi, elapsed)
         inFlight = false
 
         appHandler.post {
@@ -182,15 +201,15 @@ class WifiScanner(
             } catch (e: Exception) {
                 Log.w(tag, "wifiViewModel.updateScanResults() threw", e)
             }
-            val maxRssi = results.maxOfOrNull { it.level } ?: -999
-            Log.d(tag, "scan OK: ${results.size} APs, maxRSSI=$maxRssi")
+            Log.d(tag, "scan OK: ${results.size} APs, maxRSSI=${maxRssi ?: "n/a"} elapsed=${elapsed}ms")
         }
     }
 
     // ===== 失败路径（含指数退避）=====
     private fun onScanFailed(reason: String) {
-        reliabilityStats?.onScanFailure()
-        Log.w(tag, "scan FAILED: $reason ; retry=$currentRetry/$maxRetries")
+        val elapsed = System.currentTimeMillis() - lastScanStart
+        reliabilityStats?.onScanFailure(elapsed)
+        Log.w(tag, "scan FAILED: $reason ; retry=$currentRetry/$maxRetries ; elapsed=${elapsed}ms")
 
         inFlight = false
         cancelTimeout()
@@ -259,7 +278,6 @@ class WifiScanner(
 
     // ===== 超时兜底 =====
     private fun postTimeoutOnce() {
-        // 先清旧的，确保只有一个超时定时器
         appHandler.removeCallbacks(timeoutRunnable)
         appHandler.postDelayed(timeoutRunnable, scanTimeoutMs)
     }
@@ -281,7 +299,6 @@ class WifiScanner(
         reliabilityStats?.snapshotMap() ?: emptyMap()
 
     fun cleanup() {
-        // 先取消回调与定时器
         cancelTimeout()
         appHandler.removeCallbacks(retryRunnable)
 

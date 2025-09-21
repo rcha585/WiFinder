@@ -6,14 +6,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.times
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.compsci399testproject.machinelearning.LocationPredictor
 import com.example.compsci399testproject.utils.NavigationGraph
 import com.example.compsci399testproject.utils.Node
 import com.example.compsci399testproject.utils.NodeType
@@ -22,23 +18,18 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 
 enum class UIState {
-    MAIN,
-    NAVIGATION_PREVIEW,
-    NAVIGATING
+    MAIN, NAVIGATION_PREVIEW, NAVIGATING
 }
 
 enum class CameraLockState {
-    LOCKED_ON_USER_POSITION,
-    LOCKED_ON_CUSTOM_POSITION,
-    FREE
+    LOCKED_ON_USER_POSITION, LOCKED_ON_CUSTOM_POSITION, FREE
 }
 
-class MapViewModel(wifiViewModel: WifiViewModel) : ViewModel() {
+class MapViewModel(private val wifiViewModel: WifiViewModel) : ViewModel() {
 
     var currentFloor by mutableStateOf(0)
         private set
@@ -61,35 +52,35 @@ class MapViewModel(wifiViewModel: WifiViewModel) : ViewModel() {
     var screenSizeWidth by mutableStateOf(0f)
     var screenSizeHeight by mutableStateOf(0f)
 
-    // Map Image Size
+    // Map Image Size (当前控件显示尺寸，像素)
     var mapImageSizeWidth by mutableStateOf(0f)
     var mapImageSizeHeight by mutableStateOf(0f)
 
-    // Actual Map Image Size in Pixels
+    // Actual Map Image Size in Pixels（底图原始像素）
     var actualImageSizeWidth by mutableStateOf(1536f)
     var actualImageSizeHeight by mutableStateOf(1536f)
 
-    var origin_x by mutableStateOf(754f);
-    var origin_y by mutableStateOf(1330f);
+    // 你量到的像素原点
+    var origin_x by mutableStateOf(885f)
+    var origin_y by mutableStateOf(972f)
 
     // Navigation
     var navigationGraph: NavigationGraph = NavigationGraph()
     var currentNavDestinationNode by mutableStateOf(Node("", 0, 0, 0, NodeType.ROOM, mutableListOf()))
-    var navigationNodeList : List<Node> = ArrayList<Node>()
+    var navigationNodeList: List<Node> = ArrayList()
     var navigationPath by mutableStateOf(Path())
     var currentFloorPathEndNode by mutableStateOf(Node("", 0, 0, 0, NodeType.NULL, mutableListOf()))
     var nextFloorPathEndNode by mutableStateOf(Node("", 0, 0, 0, NodeType.NULL, mutableListOf()))
 
-    // Position
-    private var rawPositionX: Float by mutableFloatStateOf(0f)
-    private var rawPositionY: Float by mutableFloatStateOf(0f)
+    // Position（配准后的地图像素坐标，用于导航起点）
+    private var rawPositionX: Float by mutableFloatStateOf(origin_x)
+    private var rawPositionY: Float by mutableFloatStateOf(origin_y)
 
-    // Position X and Y take percentage values
-    // This is because the image scaling is different and can't use the raw pixel values
-    private val _positionX = MutableStateFlow((origin_x) / actualImageSizeWidth)
+    // 百分比（相对底图尺寸，用于绘制蓝点）
+    private val _positionX = MutableStateFlow(origin_x / actualImageSizeWidth)
     val positionX: StateFlow<Float> = _positionX.asStateFlow()
 
-    private val _positionY = MutableStateFlow((origin_y) / actualImageSizeHeight)
+    private val _positionY = MutableStateFlow(origin_y / actualImageSizeHeight)
     val positionY: StateFlow<Float> = _positionY.asStateFlow()
 
     private val _positionFloor = MutableStateFlow(0)
@@ -98,44 +89,27 @@ class MapViewModel(wifiViewModel: WifiViewModel) : ViewModel() {
     private val _rotation = MutableStateFlow(180f)
     val rotation: StateFlow<Float> = _rotation.asStateFlow()
 
-    private val _wifiViewModel = wifiViewModel
-
-    private val _wifiScanRate : Long = 1_000 // Amount of time to wait before next WiFi scan, in milliseconds.
+    private val _wifiScanRate: Long = 3_000 // 扫描节奏（毫秒）
 
     init {
+        // 初始蓝点 = 原点百分比
+        _positionX.value = origin_x / actualImageSizeWidth
+        _positionY.value = origin_y / actualImageSizeHeight
+        _positionFloor.value = 0
+
         startPredictingLocation()
         loopFunction()
     }
 
-    fun setFloor(floor: Int){
-        currentFloor = floor
-    }
+    fun setFloor(floor: Int) { currentFloor = floor }
+    fun getFloor(): Int = currentFloor
 
-    fun getFloor(): Int {
-        return currentFloor
-    }
+    fun updateOffset(newOffset: Offset) { offset = newOffset }
+    fun updateZoom(newZoom: Float) { zoom = newZoom }
+    fun updateAngle(newAngle: Float) { angle = newAngle }
+    fun updateCameraLockState(value: CameraLockState) { cameraLockState = value }
+    fun updateUiState(state: UIState) { uiState = state }
 
-    fun updateOffset(newOffset : Offset){
-        offset = newOffset
-    }
-
-    fun updateZoom(newZoom : Float){
-        zoom = newZoom
-    }
-
-    fun updateAngle(newAngle : Float){
-        angle = newAngle
-    }
-
-    fun updateCameraLockState(value: CameraLockState) {
-        cameraLockState = value
-    }
-
-    fun updateUiState(state: UIState) {
-        uiState = state
-    }
-
-    // Screen Size Functions
     fun updateScreenSize(width: Float, height: Float) {
         screenSizeWidth = width
         screenSizeHeight = height
@@ -146,59 +120,50 @@ class MapViewModel(wifiViewModel: WifiViewModel) : ViewModel() {
         mapImageSizeHeight = height
     }
 
-    fun updateMapOffset(x:Float, y: Float, zoom: Float) {
+    fun updateMapOffset(x: Float, y: Float, zoom: Float) {
         val newZoom = zoom
-
         val widthOffset = (screenSizeWidth / 2) / newZoom
         val heightOffset = (screenSizeHeight / 2) / newZoom
-
         val xPos = x - widthOffset
         val yPos = y - heightOffset
-
         val localOffset = Offset(xPos, yPos)
         val localZoom = newZoom
         val localAngle = 0f
-
         updateOffset(localOffset)
         updateZoom(localZoom)
         updateAngle(localAngle)
     }
 
-    // Navigation functions
-    fun updateNavigationGraph(ng: NavigationGraph) {
-        navigationGraph = ng
-    }
-
-
-    fun updateNavDestinationNode(n: Node) {
-        currentNavDestinationNode = n
-    }
+    fun updateNavigationGraph(ng: NavigationGraph) { navigationGraph = ng }
+    fun updateNavDestinationNode(n: Node) { currentNavDestinationNode = n }
 
     fun viewDestinationNode(node: Node) {
         updateCameraLockState(CameraLockState.LOCKED_ON_CUSTOM_POSITION)
         updateUiState(UIState.NAVIGATION_PREVIEW)
         updateNavDestinationNode(node)
         setFloor(node.floor)
-
-        updateMapOffset((((origin_x + node.x) / actualImageSizeWidth) * mapImageSizeWidth), (((origin_y - node.y) / actualImageSizeHeight) * mapImageSizeHeight), 6f)
-
-        Log.d("MAP VIEWMODEL", "VIEW DESTINATION ${offset} ${zoom} ${angle} | NODE ${node.id} ${node.x}, ${node.y}")
+        updateMapOffset(
+            (((origin_x + node.x) / actualImageSizeWidth) * mapImageSizeWidth),
+            (((origin_y - node.y) / actualImageSizeHeight) * mapImageSizeHeight),
+            6f
+        )
+        Log.d("MAP VIEWMODEL", "VIEW DESTINATION $offset $zoom $angle | NODE ${node.id} ${node.x}, ${node.y}")
     }
 
     fun createNavPathList() {
-        val currentPositionNode = Node(id = "Start Node", x = rawPositionX.toInt(), y = rawPositionY.toInt(),
-            floor = positionFloor.value, type = NodeType.TRAVEL, mutableListOf()
+        val currentPositionNode = Node(
+            id = "Start Node",
+            x = rawPositionX.toInt(),
+            y = rawPositionY.toInt(),
+            floor = positionFloor.value,
+            type = NodeType.TRAVEL,
+            mutableListOf()
         )
-        Log.d("MAP VIEWMODEL", "NAV CURRENT POSITION NODE ${rawPositionX.toInt()}, ${rawPositionY.toInt()}| FLOOR ${positionFloor.value}")
+        Log.d("MAP VIEWMODEL", "NAV CURRENT POSITION NODE ${rawPositionX.toInt()}, ${rawPositionY.toInt()} | FLOOR ${positionFloor.value}")
         Log.d("MAP VIEWMODEL", "NAV DESTINATION NODE ${currentNavDestinationNode.x} ${currentNavDestinationNode.y}, ${currentNavDestinationNode.floor}")
 
         val pathNodeList: List<Node> = getPath(currentPositionNode, currentNavDestinationNode, navigationGraph)
-        // val pathNodeList: List<Node> = createCustomNavNodeList()
         navigationNodeList = pathNodeList
-
-        //for (node in navigationNodeList) {
-        //    Log.d("NAVIGATION START", "${node.x}, ${node.y}, ${node.floor}, ${node.type}")
-        //}
     }
 
     fun startNavigation() {
@@ -212,22 +177,18 @@ class MapViewModel(wifiViewModel: WifiViewModel) : ViewModel() {
         val path = Path()
         var index = 0
 
-        var startPositionSet: Boolean = false;
-        // Set starting position
+        var startPositionSet = false
         for (node in navigationNodeList) {
             index += 1
             if (node.floor == floor) {
-
                 val startX = (((origin_x + node.x) / actualImageSizeWidth) * mapImageSizeWidth)
-                val startY = (((origin_y - node.y) / actualImageSizeWidth) * mapImageSizeWidth)
+                val startY = (((origin_y - node.y) / actualImageSizeHeight) * mapImageSizeHeight)
                 path.moveTo(startX, startY)
                 currentFloorPathEndNode = node
                 startPositionSet = true
                 break
             }
         }
-
-        //Log.d("DRAW NAV PATH", "START POSITION SET ${startPositionSet}")
 
         if (!startPositionSet) {
             navigationPath = Path()
@@ -236,15 +197,12 @@ class MapViewModel(wifiViewModel: WifiViewModel) : ViewModel() {
             return navigationPath
         }
 
-        // Loop through nodes on current floor to create Path UI
         for (i: Int in index..<navigationNodeList.size) {
-            val node = navigationNodeList.get(i)
-
+            val node = navigationNodeList[i]
             if (node.floor != floor) {
                 nextFloorPathEndNode = node
                 break
             }
-
             val x = (((origin_x + node.x) / actualImageSizeWidth) * mapImageSizeWidth)
             val y = (((origin_y - node.y) / actualImageSizeHeight) * mapImageSizeHeight)
             path.lineTo(x, y)
@@ -255,28 +213,6 @@ class MapViewModel(wifiViewModel: WifiViewModel) : ViewModel() {
 
         navigationPath = path
         return navigationPath
-    }
-
-    fun createCustomNavNodeList() : List<Node> { // For testing the path UI
-        var arrayList: ArrayList<Node> = ArrayList<Node>()
-
-        arrayList.add(Node("0T1", 10, 66, 0, NodeType.TRAVEL, mutableListOf()))
-        arrayList.add(Node("0T2", 16, 264, 0, NodeType.TRAVEL, mutableListOf()))
-        arrayList.add(Node("0T3", 82, 371, 0, NodeType.TRAVEL, mutableListOf()))
-        arrayList.add(Node("0T3", 62, 388, 0, NodeType.TRAVEL, mutableListOf()))
-        arrayList.add(Node("0S1", 18, 330, 0, NodeType.STAIRS, mutableListOf()))
-
-        arrayList.add(Node("1T1", 47, 352, 1, NodeType.TRAVEL, mutableListOf()))
-        arrayList.add(Node("1T2", 31, 363, 1, NodeType.TRAVEL, mutableListOf()))
-        arrayList.add(Node("1T3", 10, 313, 1, NodeType.TRAVEL, mutableListOf()))
-        arrayList.add(Node("1S1", -22, 270, 1, NodeType.STAIRS, mutableListOf()))
-
-        arrayList.add(Node("2T1", -34, 252, 2, NodeType.TRAVEL, mutableListOf()))
-        arrayList.add(Node("2T2", -75, 196, 2, NodeType.TRAVEL, mutableListOf()))
-        arrayList.add(Node("2T3", -70, 148, 2, NodeType.TRAVEL, mutableListOf()))
-        arrayList.add(Node("Room 1", -56, 116, 2, NodeType.ROOM, mutableListOf()))
-
-        return arrayList
     }
 
     private fun loopFunction() {
@@ -290,56 +226,35 @@ class MapViewModel(wifiViewModel: WifiViewModel) : ViewModel() {
         }
     }
 
-    //////////////////////////////////////////////////////////////////
-    //                      YOUR CHANGES BELOW                      //
-    //////////////////////////////////////////////////////////////////
-    //
-    // startPredictingLocation() begins the loop for continually scanning
-    // for WiFi signals and using the machine learning models for predicting
-    // the user location.
+    // ---------------------- Wi-Fi → 地图蓝点同步 ----------------------
     private fun startPredictingLocation() {
+        // 定时触发扫描
         viewModelScope.launch {
             while (true) {
-                _wifiViewModel.scan()
-
-                val success = withTimeoutOrNull(10_000) {
-                    _wifiViewModel.scanResults.firstOrNull { results ->
-                        if (results.isNotEmpty()) {
-                            _wifiViewModel.updateScanResults()
-
-                            val strengthArray = _wifiViewModel.getStrengthArray()
-                            val floor = LocationPredictor.predictFloor(strengthArray.toFloatArray())
-                            val x = LocationPredictor.predictX(strengthArray.toFloatArray())
-                            val y = LocationPredictor.predictY(strengthArray.toFloatArray())
-
-                            // FOR DEBUG PURPOSES
-                            //val floor = 0
-                            //val x = (rawPositionX + 10f) % 100f
-                            //val y = (rawPositionY + 10f) % 100f
-
-                            rawPositionX = x
-                            rawPositionY = y
-
-                            Log.d("predictor", "Predicted X: $x, Y: $y, Floor: $floor")
-
-                            _positionX.value = (origin_x + x) / actualImageSizeWidth
-                            _positionY.value = (origin_y - y) / actualImageSizeHeight
-                            _positionFloor.value = floor
-
-                            if (cameraLockState == CameraLockState.LOCKED_ON_USER_POSITION) {
-                                setFloor(floor)
-                            }
-
-                            true
-                        } else false
-                    }
+                try { wifiViewModel.scan() } catch (t: Throwable) {
+                    Log.e("MapVM", "scan() failed", t)
                 }
-
                 delay(_wifiScanRate)
             }
         }
+
+        // 收集扫描结果 → 刷新蓝点（像素百分比）
+        viewModelScope.launch {
+            wifiViewModel.scanResults.collectLatest { results ->
+                if (results.isEmpty()) return@collectLatest
+
+                val (dx, dy) = wifiViewModel.displayXY.value  // 已平滑 & 仿射后的像素
+                rawPositionX = dx
+                rawPositionY = dy
+
+                _positionX.value = dx / actualImageSizeWidth
+                _positionY.value = dy / actualImageSizeHeight
+                _positionFloor.value = wifiViewModel.stableFloor.value
+
+                if (cameraLockState == CameraLockState.LOCKED_ON_USER_POSITION) {
+                    setFloor(_positionFloor.value)
+                }
+            }
+        }
     }
-    //////////////////////////////////////////////////////////////////
-    //                      YOUR CHANGES ABOVE                      //
-    //////////////////////////////////////////////////////////////////
 }
