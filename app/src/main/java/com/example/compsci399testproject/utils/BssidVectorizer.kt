@@ -17,7 +17,6 @@ object BssidVectorizer {
     @Volatile private var vocab: List<String>? = null
     @Volatile private var index: Map<String, Int>? = null
 
-    /** 尝试加载 assets/bssid_whitelist_order.txt；失败则使用空表并记录日志，不让应用崩溃。 */
     @Synchronized
     fun ensureLoaded(context: Context) {
         if (vocab != null && index != null) return
@@ -51,7 +50,6 @@ object BssidVectorizer {
         return vocab ?: emptyList()
     }
 
-    /** 一次扫描 -> 与词表一致的向量；缺失填 -100。 */
     fun toFeatureVector(context: Context, results: List<ScanResult>): FloatArray {
         ensureLoaded(context)
         val vcb = vocab ?: emptyList()

@@ -43,10 +43,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // 1) 先加载坐标配置（原点/缩放/朝向），保证整个 App 一致
         CoordTransform.load(applicationContext)
 
-        // 2) 运行时权限
         requestBasePermissions()
 
         val factory = WifiScannerViewModelFactory(application)
@@ -64,7 +62,7 @@ class MainActivity : ComponentActivity() {
                 composable("WifiSignals") { WifiSignalList(wifiViewModel) }
                 composable("ScanTool") { ScanTool(wifiViewModel) }
                 composable("MainApp") { MapView(mapViewModel) }
-                // 可选：给原点设置页一个路由（如果你要单独页面）
+
                 composable("LocationTool") { FindingLocationScreen() }
             }
         }
@@ -106,8 +104,7 @@ fun Menu(navController: NavController) {
         MenuButton(onClick = { navController.navigate("WifiSignals") }, text = "Wi-Fi Signals")
         MenuButton(onClick = { navController.navigate("ScanTool") }, text = "Scan Tool")
         MenuButton(onClick = { navController.navigate("MainApp") }, text = "Main App")
-        // 想手动调原点，可临时放一个入口（若不需要可删）
-        // MenuButton(onClick = { navController.navigate("LocationTool") }, text = "Origin Tool")
+
     }
 }
 

@@ -328,7 +328,7 @@ class WifiViewModel(application: Application) : AndroidViewModel(application) {
         val c = s * sin
         val d = s * cos
         val tx = X1 - (a * x1 + b * y1)
-        val ty = Y1 - (c * x1 + d * y1) // ✅ 关键修正
+        val ty = Y1 - (c * x1 + d * y1)
         mapTransform = Affine(a, b, c, d, tx, ty)
     }
 
