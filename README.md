@@ -1,53 +1,82 @@
 [![Review Assignment Due Date](https://classroom.github.com/assets/deadline-readme-button-22041afd0340ce965d47ae6ef1cefeee28c7c493a6346c4f15d667ab976d596c.svg)](https://classroom.github.com/a/4-04QCSZ)
 
 # WiFinder
-WiFinder allows the user to find their location at the University of Auckland. Currently the application supports a small area on floors G, 1 and 2 in building 302. The images below show the area where data points where collected, so you can expect the application to work in these areas.
 
-**Floor G (0)**
+WiFinder is an Android app for indoor positioning at the University of Auckland.  
+The current dataset covers parts of **Building 302** on floors **G (0)**, **1**, and **2**.
 
-![Floor 0 Data](https://github.com/uoa-compsci399-2025-s1/capstone-project-2025-s1-team-7/blob/main/WiFi-Scan-Data-Images/Floor-0.png)
+**Floor coverage (data collection areas)**
+- Floor G (0): [Floor 0 Data](WiFi-Scan-Data-Images/Floor-0.png)
+- Floor 1: [Floor 1 Data](WiFi-Scan-Data-Images/Floor-1.png)
+- Floor 2: [Floor 2 Data](WiFi-Scan-Data-Images/Floor-2.png)
 
-**Floor 1**
+---
 
-![Floor 1 Data](https://github.com/uoa-compsci399-2025-s1/capstone-project-2025-s1-team-7/blob/main/WiFi-Scan-Data-Images/Floor-1.png)
+## What’s in this branch (stabilised pipeline)
 
-**Floor 2**
+This branch extends the baseline with a lightweight, on-device stabilisation stack:
 
-![Floor 2 Data](https://github.com/uoa-compsci399-2025-s1/capstone-project-2025-s1-team-7/blob/main/WiFi-Scan-Data-Images/Floor-2.png)
+- **AP selection & vectorisation** — [`utils/BssidVectorizer.kt`](app/src/main/java/com/example/compsci399testproject/utils/BssidVectorizer.kt)  
+  Loads a whitelist from `assets/bssid_whitelist_order.txt` (fixed order). Only whitelisted BSSIDs are mapped to a fixed-size RSSI vector (RSSI clipped to −100…−20 dBm; keep max if duplicates). Missing entries default to −100 dBm.
 
-## Technologies used to create the application
-The WiFinder application was made using Android Studio. The languages used were Kotlin and Java.
+- **Position smoothing** — [`utils/PositionSmoother.kt`](app/src/main/java/com/example/compsci399testproject/utils/PositionSmoother.kt)  
+  Exponential Moving Average (EMA) on (x, y), α = 0.3, to reduce short-term jitter.
 
-The project requires an Android Gradle Version of 8.9.0 or above. As long as you install the latest version of Android Studio, there should be no problems running this project.
+- **Coordinate handling** — [`utils/CoordTransform.kt`](app/src/main/java/com/example/compsci399testproject/utils/CoordTransform.kt)  
+  Consistent origin/scale/Y-axis; helpers to convert to pixels for map rendering.
 
-**Extra tools can be found under other branches:**
-- The interpolation branch has scripts available to create interpolated data points based on the collected data points
-- The position-tool branch has a local webpage program that allows the user to select points on the map to get an X and Y coordinate of the floor image
-- The model-testing branch has a build of the Android application that allows developers to test different machine learning models
-- The mainWithPF branch has a build of the Android application which implements the Particle Filter. As of writing this README, the Particle Filter still has some issues which is why it's under a separate branch.
+- **Robust Wi-Fi scanning** — [`utils/WifiScanner.kt`](app/src/main/java/com/example/compsci399testproject/utils/WifiScanner.kt)  
+  Single in-flight scan, **≥ 8 s** trigger interval, **8 s** timeout, exponential backoff, cache fallback; permission/location checks; reliability stats posted to the ViewModel.
 
-## Builds of the Application
-You can find development builds [here](https://github.com/uoa-compsci399-2025-s1/capstone-project-2025-s1-team-7/releases/tag/COMPSCI-399-Final) (Android only)
+If you change the UI tick (e.g., `_wifiScanRate` in [`viewmodel/MapViewModel.kt`](https://github.com/uoa-compsci399-2025-s1/capstone-project-2025-s1-team-7/blob/main/app/src/main/java/com/example/compsci399testproject/viewmodel/MapViewModel.kt)):
 
-## How to setup the application
-- Install the latest version of Android Studio
-- Clone the Repository
-- Open Android Studio and go through the setup process
-- Once you get to the project selection page, select and open the cloned repository
+> It **cannot exceed** the scanner’s minimum interval in `WifiScanner.kt` (`minScanIntervalMs = 8000`).  
+> Effective cadence is typically **~9 s/sample** (unless OS throttling applies).
 
-- Go to the project view on the left side, open Gradle Scripts dropdown and open the build.gradle.kts file
-- A prompt will show up at the top of the editor asking you to sync the gradle files. Click the "Sync Now" option.
+---
 
-- Once the gradle files are synced, you can build and run the application on an emulator or load it onto an Android phone.
+## Requirements
 
-For more information on running the application on your emulator or phone, refer to the [Android Studio Developer Page](https://developer.android.com/studio/run/device)
+- Android Studio (latest) with **Android Gradle Plugin ≥ 8.9.0**
+- Android device or emulator (real device recommended)
+- Enable **Wi-Fi** and **Location**; grant runtime permissions:
+    - `ACCESS_FINE_LOCATION`
+    - `NEARBY_WIFI_DEVICES` (Android 13+)
 
-## Note on running the application
-The main branch currently has an update rate of 1 second. However this update rate can only be achieved if you disable WiFi Scan Throttling in the developer options of your Android phone. If you don't disable this, the app will update at most, 4 times every 2 minutes. [Learn more about WiFi Scan Throttling](https://developer.android.com/develop/connectivity/wifi/wifi-scan#wifi-scan-throttling)
+> **Wi-Fi scan throttling**: Some stock Android devices throttle scans in the background.  
+> For faster testing, you may disable *Wi-Fi scan throttling* in **Developer options** (device-dependent).  
+> HarmonyOS devices may behave differently.
 
-There is a variable under [MapViewModel.kt](https://github.com/uoa-compsci399-2025-s1/capstone-project-2025-s1-team-7/blob/main/app/src/main/java/com/example/compsci399testproject/viewmodel/MapViewModel.kt) called _wifiScanRate where you can change this update rate.
+---
 
-## Future Work For the Project (not specifically relevant for CS742 students)
-- Client Server Architecture for better machine learning models, also allows the system to update the models as the application is being used
-- Better data collection methods, such as autonomous robotic scanning, or scan tool improvements
-- Integration with the official UoA Maps API, allowing for dynamic loading of floor images, rooms etc.
+## Build & Run
+
+1. **Clone** this repo and open it in **Android Studio**.
+2. When prompted, **Sync Gradle**.
+3. Connect a device (or start an emulator) and **Run** the `app` module.
+
+For general device/emulator setup, see the Android Studio docs.
+
+---
+
+## Update cadence knobs
+
+- UI tick: `_wifiScanRate` in `viewmodel/MapViewModel.kt`.
+- Scanner minimum interval: `minScanIntervalMs` in `utils/WifiScanner.kt` (default **8000 ms**).
+- Per-scan timeout: `scanTimeoutMs` in `utils/WifiScanner.kt` (default **8000 ms**).
+
+> The **largest** of these (plus any OS throttling) limits the effective update rate.
+
+---
+
+## Builds of the application
+
+Development builds are available **[here](https://github.com/uoa-compsci399-2025-s1/capstone-project-2025-s1-team-7/releases/tag/COMPSCI-399-Final)** (Android only).
+
+---
+
+## Future work (not specific to CS742)
+
+- Client–server architecture for richer models and live model updates
+- Improved data collection (robotic scanning, better tools)
+- Integration with the official UoA Maps API for dynamic floor/room data

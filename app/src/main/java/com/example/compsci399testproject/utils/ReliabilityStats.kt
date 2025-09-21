@@ -44,12 +44,17 @@ class ReliabilityStats {
         scanAttempts += 1
     }
 
-    fun onScanSuccess() {
+    /** 关键修复：在扫描成功时把 maxRssi 写入，并允许记录耗时 */
+    fun onScanSuccess(maxRssi: Int?, elapsedMs: Long? = null) {
         scanSuccesses += 1
+        if (maxRssi != null) lastMaxRssi = maxRssi
+        if (elapsedMs != null) recordResponseTime(elapsedMs)
     }
 
-    fun onScanFailure() {
+    /** 允许在失败路径上记录一次耗时（可选） */
+    fun onScanFailure(elapsedMs: Long? = null) {
         scanFailures += 1
+        if (elapsedMs != null) recordResponseTime(elapsedMs)
     }
 
     fun onFloorPrediction(predictedFloor: Int) {
@@ -59,10 +64,9 @@ class ReliabilityStats {
         lastPredictedFloor = predictedFloor
     }
 
-    fun recordResponseTime(timeMs: Long) {
+    private fun recordResponseTime(timeMs: Long) {
         responseTimes.add(timeMs)
         if (responseTimes.size > maxResponseTimeHistory) {
-            // 兼容性更好的移除首元素写法
             responseTimes.removeAt(0)
         }
     }
@@ -132,5 +136,4 @@ class ReliabilityStats {
         "avgResponseTimeMs" to getAverageResponseTime(),
         "lastMaxRssi" to (lastMaxRssi ?: Int.MIN_VALUE)
     )
-
 }
