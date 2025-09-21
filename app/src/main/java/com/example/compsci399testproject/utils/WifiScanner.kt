@@ -218,10 +218,10 @@ class WifiScanner(
             currentRetry++
             val delay = baseRetryDelayMs * currentRetry
             appHandler.postDelayed(retryRunnable, delay)
-            showToastMain("Wi-Fi 扫描失败，重试中… ($currentRetry/$maxRetries)")
+            showToastMain("Wi-Fi scan failed，retrying… ($currentRetry/$maxRetries)")
         } else {
             currentRetry = 0
-            showToastMain("Wi-Fi 扫描连续失败 $maxRetries 次")
+            showToastMain("Wi-Fi scan failed $maxRetries times in a row")
         }
     }
 
@@ -233,7 +233,7 @@ class WifiScanner(
 
         if (!wifiOn || !locationOn || !hasPerms) {
             Log.w(tag, "preconditions: wifiOn=$wifiOn, locationOn=$locationOn, perms=$hasPerms")
-            showToastMain("请先开启 Wi-Fi、定位服务，并授予定位/附近设备权限")
+            showToastMain("Please open Wi-Fi, and authorised for position and location")
             return false
         }
         return true

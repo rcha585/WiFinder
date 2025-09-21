@@ -572,9 +572,9 @@ fun NavigationTopBar(
 @Composable
 fun MapView(
     mapViewModel: MapViewModel = run {
-        // 先取到同作用域下的 WifiViewModel
+
         val wifiVM: WifiViewModel = viewModel()
-        // 再用 Factory 创建需要依赖的 MapViewModel
+
         viewModel(factory = MapViewModelFactory(wifiVM))
     }
 ) {

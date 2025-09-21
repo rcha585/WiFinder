@@ -79,7 +79,6 @@ fun FindingLocationScreen() {
 
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Button(onClick = {
-                // 一键设置为 (885, 972)
                 oxText = "885"; oyText = "972"
             }) { Text("Use (885, 972)") }
 
