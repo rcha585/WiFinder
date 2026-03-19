@@ -1,6 +1,4 @@
-[![Review Assignment Due Date](https://classroom.github.com/assets/deadline-readme-button-22041afd0340ce965d47ae6ef1cefeee28c7c493a6346c4f15d667ab976d596c.svg)](https://classroom.github.com/a/4-04QCSZ)
-
-# WiFinder
+# WiFinder: WiFi-Based Indoor Positioning System
 
 WiFinder is an Android app for indoor positioning at the University of Auckland.  
 The current dataset covers parts of **Building 302** on floors **G (0)**, **1**, and **2**.
