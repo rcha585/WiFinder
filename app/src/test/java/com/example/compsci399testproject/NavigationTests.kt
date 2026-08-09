@@ -4,6 +4,7 @@ import com.example.compsci399testproject.utils.NodeType
 import com.example.compsci399testproject.utils.getPath
 import com.example.compsci399testproject.utils.getRoomNodes
 import com.example.compsci399testproject.utils.initialiseTestGraph
+import com.example.compsci399testproject.utils.loadTestNodes
 import org.junit.Test
 import org.junit.Assert.*
 class NavigationTest {
@@ -17,9 +18,10 @@ class NavigationTest {
         val roomNodes = getRoomNodes(navigationGraph)
 
         // Assert results
-        assertEquals(1, roomNodes.size)
-        assertEquals(NodeType.ROOM, roomNodes[0].type)
-        assertEquals("room1", roomNodes[0].id)
+        val expectedRoomIds = loadTestNodes().filter { it.type == "ROOM" }.map { it.id }.toSet()
+        assertEquals(expectedRoomIds.size, roomNodes.size)
+        assertTrue(roomNodes.all { it.type == NodeType.ROOM })
+        assertEquals(expectedRoomIds, roomNodes.map { it.id }.toSet())
     }
 
     @Test
