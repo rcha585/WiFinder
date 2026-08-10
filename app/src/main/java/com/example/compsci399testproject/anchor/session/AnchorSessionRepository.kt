@@ -27,8 +27,8 @@ class AnchorSessionRepository {
         planeWallCandidates.clear()
     }
 
-    @Synchronized fun setDepthSupported(supported: Boolean) {
-        metadata = requireMetadata().copy(depthSupported = supported)
+    @Synchronized fun setArRuntime(engineLabel: String, depthSupported: Boolean) {
+        metadata = requireMetadata().copy(arEngine = engineLabel, depthSupported = depthSupported)
     }
 
     @Synchronized fun recordAnchor(observation: AnchorObservation) {

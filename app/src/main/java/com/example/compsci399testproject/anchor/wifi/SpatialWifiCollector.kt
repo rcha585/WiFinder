@@ -9,7 +9,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 
-/** Reuses the v1 WifiScanner via WifiViewModel but stores raw RF data in metric ARCore space. */
+/** Reuses the v1 WifiScanner via WifiViewModel but stores raw RF data in metric AR space. */
 class SpatialWifiCollector(private val wifiViewModel: WifiViewModel) {
     private var scanJob: Job? = null
     private var resultsJob: Job? = null

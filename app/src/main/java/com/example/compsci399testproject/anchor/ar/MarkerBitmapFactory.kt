@@ -5,8 +5,10 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import com.example.compsci399testproject.anchor.session.MarkerPattern
-import com.google.ar.core.AugmentedImageDatabase
-import com.google.ar.core.Session
+import com.google.ar.core.AugmentedImageDatabase as GoogleAugmentedImageDatabase
+import com.google.ar.core.Session as GoogleSession
+import com.huawei.hiar.ARAugmentedImageDatabase as HuaweiAugmentedImageDatabase
+import com.huawei.hiar.ARSession as HuaweiSession
 
 object MarkerBitmapFactory {
     private const val BITMAP_SIZE = 620
@@ -36,13 +38,37 @@ object MarkerBitmapFactory {
         return bitmap
     }
 
-    fun createDatabase(session: Session, sessionId: String, markerWidthMeters: Float): AugmentedImageDatabase {
-        val database = AugmentedImageDatabase(session)
-        for (anchorId in MarkerPattern.anchorIds) {
+    fun createGoogleDatabase(
+        session: GoogleSession,
+        sessionId: String,
+        markerWidthsMetersByAnchor: Map<String, Float>,
+    ): GoogleAugmentedImageDatabase {
+        val database = GoogleAugmentedImageDatabase(session)
+        for ((anchorId, markerWidthMeters) in markerWidthsMetersByAnchor.validMarkerWidths()) {
             val bitmap = create(sessionId, anchorId)
             database.addImage("Anchor $anchorId", bitmap, markerWidthMeters)
             bitmap.recycle()
         }
         return database
     }
+
+    fun createHuaweiDatabase(
+        session: HuaweiSession,
+        sessionId: String,
+        markerWidthsMetersByAnchor: Map<String, Float>,
+    ): HuaweiAugmentedImageDatabase {
+        val database = HuaweiAugmentedImageDatabase(session)
+        for ((anchorId, markerWidthMeters) in markerWidthsMetersByAnchor.validMarkerWidths()) {
+            val bitmap = create(sessionId, anchorId)
+            database.addImage("Anchor $anchorId", bitmap, markerWidthMeters)
+            bitmap.recycle()
+        }
+        return database
+    }
+
+    private fun Map<String, Float>.validMarkerWidths(): List<Pair<String, Float>> =
+        MarkerPattern.anchorIds.mapNotNull { anchorId ->
+            val width = this[anchorId] ?: return@mapNotNull null
+            if (width > 0f) anchorId to width else null
+        }
 }

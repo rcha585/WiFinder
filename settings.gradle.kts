@@ -16,9 +16,9 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        maven(url = "https://developer.huawei.com/repo/")
     }
 }
 
 rootProject.name = "COMPSCI 399 Test Project"
 include(":app")
- 

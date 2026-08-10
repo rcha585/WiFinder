@@ -81,7 +81,9 @@ data class MappingSessionMetadata(
     val requiredAnchorIds: List<String>,
     val depthSupported: Boolean? = null,
     val deviceModel: String,
-    val coordinateSystem: String = "ARCore world metres; floor=(world.x, -world.z); world.y is up",
+    val markerWidthsMetersByAnchor: Map<String, Float> = requiredAnchorIds.associateWith { markerWidthMeters },
+    val arEngine: String? = null,
+    val coordinateSystem: String = "AR world metres; floor=(world.x, -world.z); world.y is up",
 )
 
 data class MappingSnapshot(

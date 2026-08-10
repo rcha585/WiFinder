@@ -31,7 +31,7 @@ enum class MappingPhase { SETUP, CALIBRATION, MAPPING, PROCESSING, PREVIEW }
 data class MappingUiState(
     val phase: MappingPhase = MappingPhase.SETUP,
     val sessionId: String = "",
-    val markerWidthCentimetres: Float = 14f,
+    val markerWidthsCentimetresByAnchor: Map<String, Float> = DEFAULT_MARKER_WIDTHS_CM,
     val requiredAnchorIds: List<String> = listOf("A", "B", "C"),
     val detectedAnchorIds: Set<String> = emptySet(),
     val trackingState: SpatialTrackingState = SpatialTrackingState.PAUSED,
@@ -48,6 +48,10 @@ data class MappingUiState(
     val exportedMapping: ExportedMapping? = null,
 ) {
     val canStartMapping: Boolean get() = detectedAnchorIds.containsAll(requiredAnchorIds)
+
+    companion object {
+        val DEFAULT_MARKER_WIDTHS_CM = mapOf("A" to 14f, "B" to 5.4f, "C" to 16f)
+    }
 }
 
 class AnchorMappingViewModel(
@@ -62,34 +66,37 @@ class AnchorMappingViewModel(
     val state: StateFlow<MappingUiState> = _state.asStateFlow()
     private var lastUiUpdateAt = 0L
 
-    fun prepareSession(sessionIdInput: String, markerWidthCentimetres: Float): Boolean {
+    fun prepareSession(sessionIdInput: String, markerWidthsCentimetresByAnchor: Map<String, Float>): Boolean {
         val sessionId = MarkerPattern.normalizeSessionId(sessionIdInput)
-        if (sessionId.length < 4 || markerWidthCentimetres !in 5f..40f) {
-            _state.update { it.copy(errorMessage = "Use a 4–16 character session ID and a measured marker width of 5–40 cm.") }
+        val required = listOf("A", "B", "C")
+        val normalizedWidths = required.associateWith { anchorId -> markerWidthsCentimetresByAnchor[anchorId] ?: 0f }
+        if (sessionId.length < 4 || normalizedWidths.values.any { it !in 5f..60f }) {
+            _state.update { it.copy(errorMessage = "Use a 4-16 character session ID and A/B/C marker widths of 5-60 cm.") }
             return false
         }
-        val required = listOf("A", "B", "C")
+        val markerWidthsMeters = normalizedWidths.mapValues { it.value / 100f }
         repository.start(
             MappingSessionMetadata(
                 sessionId = sessionId,
                 startedAtEpochMillis = System.currentTimeMillis(),
-                markerWidthMeters = markerWidthCentimetres / 100f,
+                markerWidthMeters = markerWidthsMeters.getValue("A"),
                 requiredAnchorIds = required,
                 deviceModel = "${Build.MANUFACTURER} ${Build.MODEL}".trim(),
+                markerWidthsMetersByAnchor = markerWidthsMeters,
             ),
         )
         _state.value = MappingUiState(
             phase = MappingPhase.CALIBRATION,
             sessionId = sessionId,
-            markerWidthCentimetres = markerWidthCentimetres,
+            markerWidthsCentimetresByAnchor = normalizedWidths,
             requiredAnchorIds = required,
         )
         return true
     }
 
-    fun setDepthSupported(supported: Boolean) {
-        runCatching { repository.setDepthSupported(supported) }
-        _state.update { it.copy(depthSupported = supported) }
+    fun setArRuntime(engineLabel: String, depthSupported: Boolean) {
+        runCatching { repository.setArRuntime(engineLabel, depthSupported) }
+        _state.update { it.copy(depthSupported = depthSupported, errorMessage = null) }
     }
 
     fun onArFrame(packet: ArFramePacket) {

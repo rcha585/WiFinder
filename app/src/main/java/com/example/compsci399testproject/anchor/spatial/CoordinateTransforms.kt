@@ -1,6 +1,6 @@
 package com.example.compsci399testproject.anchor.spatial
 
-/** Keeps ARCore metric coordinates independent from pixels and legacy Building 302 calibration. */
+/** Keeps AR metric coordinates independent from pixels and legacy Building 302 calibration. */
 object CoordinateTransforms {
     fun worldToFloor(point: SpatialCoordinate): FloorPoint =
         FloorPoint(xMeters = point.xMeters, yMeters = -point.zMeters)

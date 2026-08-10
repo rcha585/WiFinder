@@ -1,19 +1,21 @@
 package com.example.compsci399testproject.anchor.ui
 
+import android.opengl.GLSurfaceView
 import androidx.compose.foundation.background
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -38,20 +40,27 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.example.compsci399testproject.anchor.ar.AnchorArRuntime
 import com.example.compsci399testproject.anchor.ar.ArCoreSurfaceView
+import com.example.compsci399testproject.anchor.ar.GoogleArRuntime
+import com.example.compsci399testproject.anchor.ar.HuaweiArRuntime
+import com.example.compsci399testproject.anchor.ar.HuaweiArSurfaceView
 import com.example.compsci399testproject.anchor.export.ExportedMapping
 import java.util.Locale
+
+private val defaultPresetWidths = mapOf("A" to "14.0", "B" to "5.4", "C" to "16.0")
 
 @Composable
 fun AnchorMappingScreen(
     viewModel: AnchorMappingViewModel,
-    runtime: ArRuntime?,
-    onBeginCalibration: (String, Float) -> Unit,
+    runtime: AnchorArRuntime?,
+    onBeginCalibration: (String, Map<String, Float>) -> Unit,
+    onRetryAr: () -> Unit,
     onFinishMapping: () -> Unit,
     onReset: () -> Unit,
     onShare: (ExportedMapping) -> Unit,
-    onSurfaceReady: (ArCoreSurfaceView) -> Unit,
-    onSurfaceReleased: (ArCoreSurfaceView) -> Unit,
+    onSurfaceReady: (GLSurfaceView) -> Unit,
+    onSurfaceReleased: (GLSurfaceView) -> Unit,
 ) {
     val state by viewModel.state.collectAsState()
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF07111F))) {
@@ -64,6 +73,8 @@ fun AnchorMappingScreen(
                 onPrimary = viewModel::startMapping,
                 primaryLabel = "Start Mapping",
                 primaryEnabled = state.canStartMapping,
+                onRetryAr = onRetryAr,
+                onReset = onReset,
                 onSurfaceReady = onSurfaceReady,
                 onSurfaceReleased = onSurfaceReleased,
             )
@@ -74,6 +85,8 @@ fun AnchorMappingScreen(
                 onPrimary = onFinishMapping,
                 primaryLabel = "Finish Scan",
                 primaryEnabled = state.samplesCollected > 0,
+                onRetryAr = onRetryAr,
+                onReset = onReset,
                 onSurfaceReady = onSurfaceReady,
                 onSurfaceReleased = onSurfaceReleased,
             )
@@ -92,21 +105,21 @@ fun AnchorMappingScreen(
 }
 
 @Composable
-private fun SetupScreen(onBeginCalibration: (String, Float) -> Unit) {
+private fun SetupScreen(onBeginCalibration: (String, Map<String, Float>) -> Unit) {
     var sessionId by remember { mutableStateOf("") }
-    var markerWidth by remember { mutableStateOf("14") }
+    var markerWidths by remember { mutableStateOf(defaultPresetWidths) }
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
         verticalArrangement = Arrangement.Center,
     ) {
         Text("WiFinder Anchor", style = MaterialTheme.typography.headlineLarge, color = Color.White, fontWeight = FontWeight.Bold)
-        Text("MVP 1 · Experimental metric room mapping", color = Color(0xFF72E7C5))
+        Text("MVP 1 experimental metric room mapping", color = Color(0xFF72E7C5))
         Spacer(Modifier.height(24.dp))
         Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF10243A))) {
             Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("New Mapping Session", style = MaterialTheme.typography.titleLarge, color = Color.White)
                 Text(
-                    "Open Anchor Web on at least three fixed devices. Enter its session ID and the measured black marker width.",
+                    "Preset sizes: A = 14 inch laptop Chrome, B = iPhone 14 Pro Safari, C = 13 inch iPad Pro Safari. Adjust only if the web page shows a different preset.",
                     color = Color(0xFFB8C8D8),
                 )
                 OutlinedTextField(
@@ -116,21 +129,26 @@ private fun SetupScreen(onBeginCalibration: (String, Float) -> Unit) {
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                OutlinedTextField(
-                    value = markerWidth,
-                    onValueChange = { markerWidth = it.filter { character -> character.isDigit() || character == '.' }.take(5) },
-                    label = { Text("Measured marker width (cm)") },
-                    suffix = { Text("cm") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                MarkerWidthInput("Anchor A width", "14 inch laptop", markerWidths.getValue("A")) {
+                    markerWidths = markerWidths + ("A" to it)
+                }
+                MarkerWidthInput("Anchor B width", "iPhone 14 Pro", markerWidths.getValue("B")) {
+                    markerWidths = markerWidths + ("B" to it)
+                }
+                MarkerWidthInput("Anchor C width", "13 inch iPad Pro", markerWidths.getValue("C")) {
+                    markerWidths = markerWidths + ("C" to it)
+                }
                 Button(
-                    onClick = { onBeginCalibration(sessionId, markerWidth.toFloatOrNull() ?: 0f) },
+                    onClick = {
+                        onBeginCalibration(
+                            sessionId,
+                            markerWidths.mapValues { (_, value) -> value.toFloatOrNull() ?: 0f },
+                        )
+                    },
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text("Step 1 — Calibrate Anchors") }
+                ) { Text("Step 1 - Calibrate Anchors") }
                 Text(
-                    "This mode uses Google Play Services for AR (ARCore), governed by Google's privacy policy. No cloud service is used by WiFinder Anchor MVP.",
+                    "Huawei phones use Huawei AR Engine first. Other Android devices fall back to Google ARCore. No WiFinder cloud service is used.",
                     style = MaterialTheme.typography.bodySmall,
                     color = Color(0xFF91A7BA),
                 )
@@ -140,40 +158,53 @@ private fun SetupScreen(onBeginCalibration: (String, Float) -> Unit) {
 }
 
 @Composable
+private fun MarkerWidthInput(label: String, helper: String, value: String, onValueChange: (String) -> Unit) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = { onValueChange(it.filter { character -> character.isDigit() || character == '.' }.take(5)) },
+        label = { Text(label) },
+        supportingText = { Text(helper) },
+        suffix = { Text("cm") },
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+    )
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
 private fun ArMappingSurface(
     state: MappingUiState,
-    runtime: ArRuntime?,
+    runtime: AnchorArRuntime?,
     viewModel: AnchorMappingViewModel,
     onPrimary: () -> Unit,
     primaryLabel: String,
     primaryEnabled: Boolean,
-    onSurfaceReady: (ArCoreSurfaceView) -> Unit,
-    onSurfaceReleased: (ArCoreSurfaceView) -> Unit,
+    onRetryAr: () -> Unit,
+    onReset: () -> Unit,
+    onSurfaceReady: (GLSurfaceView) -> Unit,
+    onSurfaceReleased: (GLSurfaceView) -> Unit,
 ) {
     Box(Modifier.fillMaxSize()) {
         if (runtime != null) {
             ArCameraView(runtime, viewModel, onSurfaceReady, onSurfaceReleased)
         } else {
-            Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
-                CircularProgressIndicator(color = Color(0xFF72E7C5))
-                Spacer(Modifier.height(12.dp))
-                Text("Preparing ARCore camera…", color = Color.White)
-            }
+            ArWaitingView(hasError = state.errorMessage != null, onRetryAr = onRetryAr, onReset = onReset)
         }
         Card(
             modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(12.dp),
             colors = CardDefaults.cardColors(containerColor = Color(0xDD07111F)),
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(12.dp),
         ) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    if (state.phase == MappingPhase.CALIBRATION) "Step 1 — Calibrate Anchors" else "Mapping in progress",
+                    if (state.phase == MappingPhase.CALIBRATION) "Step 1 - Calibrate Anchors" else "Mapping in progress",
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
                 )
                 if (state.phase == MappingPhase.CALIBRATION) {
                     Text("Point the camera at each stationary marker until it is tracked.", color = Color(0xFFB8C8D8))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         state.requiredAnchorIds.forEach { anchorId -> AnchorStatus(anchorId, anchorId in state.detectedAnchorIds) }
                     }
                 } else {
@@ -190,42 +221,67 @@ private fun ArMappingSurface(
                 }
                 val depthText = when (state.depthSupported) {
                     true -> "Depth API enabled"
-                    false -> "Depth unsupported on this device — ARCore planes will still be recorded"
-                    null -> "Checking Depth API support…"
+                    false -> "${runtime?.engineLabel ?: "AR"} plane tracking enabled; depth points unavailable"
+                    null -> "Checking AR runtime support..."
                 }
                 Text(depthText, color = if (state.depthSupported == false) Color(0xFFFFC66D) else Color(0xFF72E7C5), style = MaterialTheme.typography.bodySmall)
             }
         }
         Button(
             onClick = onPrimary,
-            enabled = primaryEnabled,
+            enabled = runtime != null && primaryEnabled,
             modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(16.dp).height(54.dp),
         ) { Text(primaryLabel) }
     }
 }
 
 @Composable
+private fun ArWaitingView(hasError: Boolean, onRetryAr: () -> Unit, onReset: () -> Unit) {
+    Column(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+        if (!hasError) {
+            CircularProgressIndicator(color = Color(0xFF72E7C5))
+            Spacer(Modifier.height(12.dp))
+            Text("Preparing AR camera...", color = Color.White)
+        } else {
+            Text("AR camera did not start.", color = Color.White, style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(12.dp))
+            Button(onClick = onRetryAr) { Text("Retry AR camera") }
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = onReset) { Text("Back to setup") }
+        }
+    }
+}
+
+@Composable
 private fun ArCameraView(
-    runtime: ArRuntime,
+    runtime: AnchorArRuntime,
     viewModel: AnchorMappingViewModel,
-    onSurfaceReady: (ArCoreSurfaceView) -> Unit,
-    onSurfaceReleased: (ArCoreSurfaceView) -> Unit,
+    onSurfaceReady: (GLSurfaceView) -> Unit,
+    onSurfaceReleased: (GLSurfaceView) -> Unit,
 ) {
     val context = LocalContext.current
-    var view by remember(runtime.session) { mutableStateOf<ArCoreSurfaceView?>(null) }
+    var view by remember(runtime) { mutableStateOf<GLSurfaceView?>(null) }
     AndroidView(
         modifier = Modifier.fillMaxSize(),
         factory = {
-            ArCoreSurfaceView(
-                context = context,
-                session = runtime.session,
-                depthSupported = runtime.depthSupported,
-                onFrame = viewModel::onArFrame,
-                onError = viewModel::reportError,
-            ).also { surface -> view = surface; onSurfaceReady(surface) }
+            when (runtime) {
+                is GoogleArRuntime -> ArCoreSurfaceView(
+                    context = context,
+                    session = runtime.session,
+                    depthSupported = runtime.depthSupported,
+                    onFrame = viewModel::onArFrame,
+                    onError = viewModel::reportError,
+                )
+                is HuaweiArRuntime -> HuaweiArSurfaceView(
+                    context = context,
+                    session = runtime.session,
+                    onFrame = viewModel::onArFrame,
+                    onError = viewModel::reportError,
+                )
+            }.also { surface -> view = surface; onSurfaceReady(surface) }
         },
     )
-    DisposableEffect(runtime.session) {
+    DisposableEffect(runtime) {
         onDispose { view?.let(onSurfaceReleased) }
     }
 }
@@ -234,7 +290,7 @@ private fun ArCameraView(
 private fun AnchorStatus(anchorId: String, detected: Boolean) {
     Card(colors = CardDefaults.cardColors(containerColor = if (detected) Color(0xFF0B6E58) else Color(0xFF26394C))) {
         Text(
-            "Anchor $anchorId — ${if (detected) "detected" else "waiting"}",
+            "$anchorId: ${if (detected) "detected" else "waiting"}",
             color = Color.White,
             modifier = Modifier.padding(horizontal = 9.dp, vertical = 7.dp),
             style = MaterialTheme.typography.bodySmall,
@@ -244,7 +300,10 @@ private fun AnchorStatus(anchorId: String, detected: Boolean) {
 
 @Composable
 private fun Metric(label: String, value: String) {
-    Column { Text(label, color = Color(0xFF91A7BA), style = MaterialTheme.typography.labelSmall); Text(value, color = Color.White) }
+    Column {
+        Text(label, color = Color(0xFF91A7BA), style = MaterialTheme.typography.labelSmall)
+        Text(value, color = Color.White)
+    }
 }
 
 @Composable
@@ -252,7 +311,7 @@ private fun ProcessingScreen() {
     Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         CircularProgressIndicator(color = Color(0xFF72E7C5))
         Spacer(Modifier.height(14.dp))
-        Text("Fitting walls and exporting…", color = Color.White)
+        Text("Fitting walls and exporting...", color = Color.White)
     }
 }
 
@@ -263,7 +322,7 @@ private fun PreviewScreen(state: MappingUiState, onShare: (ExportedMapping) -> U
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("2D Preview", style = MaterialTheme.typography.headlineMedium, color = Color.White, fontWeight = FontWeight.Bold)
         Text(
-            "${floorPlan.walls.size} walls · ${floorPlan.corners.size} corners · ${snapshot.trajectory.size} poses",
+            "${floorPlan.walls.size} walls | ${floorPlan.corners.size} corners | ${snapshot.trajectory.size} poses",
             color = Color(0xFFB8C8D8),
         )
         FloorPlanPreview(snapshot, floorPlan, Modifier.weight(1f).fillMaxWidth())

@@ -40,6 +40,10 @@
               <option value="D">Anchor D</option>
             </select>
           </label>
+          <label>
+            Display preset
+            <select id="display-preset" name="preset"></select>
+          </label>
           <button class="secondary" type="submit">Join session</button>
         </form>
       </section>
@@ -54,15 +58,17 @@
         <button id="fullscreen" class="icon-button" type="button">Full screen</button>
       </header>
 
-      <section class="marker-stage" aria-label="ARCore Augmented Image marker">
+      <section class="marker-stage" aria-label="AR visual marker">
         <canvas id="marker" width="620" height="620"></canvas>
       </section>
 
       <footer class="anchor-footer">
         <p>
-          Keep this device fixed, brightness high, and the complete square visible. Measure the
-          black square edge and enter that width in the Android Scanner.
+          Keep this device fixed, brightness high, and the complete square visible. Preset:
+          <strong id="preset-label"></strong>. Android width: <strong id="preset-width"></strong> cm.
+          Rendered estimate: <strong id="rendered-width"></strong> cm.
         </p>
+        <p id="preset-note"></p>
         <div id="anchor-links" class="anchor-links" aria-label="Session anchor links"></div>
         <button id="leave-session" class="text-button" type="button">Leave session</button>
       </footer>

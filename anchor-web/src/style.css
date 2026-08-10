@@ -97,8 +97,8 @@ input, select {
 .marker-stage { display: grid; place-items: center; min-height: 0; }
 
 #marker {
-  width: min(76vmin, 18cm);
-  height: min(76vmin, 18cm);
+  width: min(var(--marker-size, 76vmin), calc(100vw - 2rem), calc(100vh - 12rem));
+  height: min(var(--marker-size, 76vmin), calc(100vw - 2rem), calc(100vh - 12rem));
   max-width: 100%;
   max-height: 100%;
   image-rendering: pixelated;
