@@ -3,6 +3,25 @@
 WiFinder is an Android app for indoor positioning at the University of Auckland.  
 The current dataset covers parts of **Building 302** on floors **G (0)**, **1**, and **2**.
 
+## WiFinder Anchor (Experimental)
+
+The `feature/wifinder-anchor-mvp` branch adds an isolated experimental mode for mapping a new room with one ARCore-capable Android Scanner and at least three browser-only Anchor devices.
+
+- `anchor-web/` creates a LAN session and displays deterministic high-feature markers for Anchor A/B/C/D.
+- Android `Anchor Mapping (Experimental)` calibrates A/B/C with ARCore Augmented Images, records metric camera trajectory, optional Depth/plane observations, and raw spatial Wi-Fi samples.
+- Finishing a scan generates a zoomable 2D preview, `mapping.json`, and metric `floorplan.svg`.
+- The legacy Building 302 UI, coordinate calibration, and Random Forest remain available and are not used to assign absolute positions in a new Anchor Mapping session.
+
+Quick start for Anchor Web:
+
+```bash
+cd anchor-web
+npm install
+npm run dev
+```
+
+See [docs/WIFINDER_ANCHOR_MVP.md](docs/WIFINDER_ANCHOR_MVP.md) for architecture, device assumptions, build instructions, the first physical room test, honest limitations, and next experiments.
+
 **Floor coverage (data collection areas)**
 - Floor G (0): [Floor 0 Data](WiFi-Scan-Data-Images/Floor-0.png)
 - Floor 1: [Floor 1 Data](WiFi-Scan-Data-Images/Floor-1.png)

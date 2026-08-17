@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#07111f" />
+    <title>WiFinder Anchor</title>
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <main id="setup" class="shell">
+      <section class="intro">
+        <p class="eyebrow">WiFinder Anchor · MVP 1</p>
+        <h1>Turn this screen into a fixed visual anchor.</h1>
+        <p class="lede">
+          Create one local mapping session, then open a different anchor link on each stationary
+          browser device. No account or backend is used.
+        </p>
+      </section>
+
+      <section class="panel session-panel">
+        <h2>Create a session</h2>
+        <p>Generates a short session ID and opens Anchor A on this device.</p>
+        <button id="create-session" class="primary" type="button">Create session</button>
+      </section>
+
+      <section class="panel session-panel">
+        <h2>Join a session</h2>
+        <form id="join-form">
+          <label>
+            Session ID
+            <input id="session-id" name="session" maxlength="16" autocomplete="off" required />
+          </label>
+          <label>
+            This device
+            <select id="anchor-id" name="anchor">
+              <option value="A">Anchor A</option>
+              <option value="B">Anchor B</option>
+              <option value="C">Anchor C</option>
+              <option value="D">Anchor D</option>
+            </select>
+          </label>
+          <label>
+            Display preset
+            <select id="display-preset" name="preset"></select>
+          </label>
+          <button class="secondary" type="submit">Join session</button>
+        </form>
+      </section>
+    </main>
+
+    <main id="anchor-screen" class="anchor-screen" hidden>
+      <header class="anchor-header">
+        <div>
+          <p id="session-label" class="eyebrow"></p>
+          <h1 id="anchor-label"></h1>
+        </div>
+        <button id="fullscreen" class="icon-button" type="button">Full screen</button>
+      </header>
+
+      <section class="marker-stage" aria-label="AR visual marker">
+        <canvas id="marker" width="620" height="620"></canvas>
+      </section>
+
+      <footer class="anchor-footer">
+        <p>
+          Keep this device fixed, brightness high, and the complete square visible. Preset:
+          <strong id="preset-label"></strong>. Android width: <strong id="preset-width"></strong> cm.
+          Rendered estimate: <strong id="rendered-width"></strong> cm.
+        </p>
+        <p id="preset-note"></p>
+        <div id="anchor-links" class="anchor-links" aria-label="Session anchor links"></div>
+        <button id="leave-session" class="text-button" type="button">Leave session</button>
+      </footer>
+    </main>
+
+    <script type="module" src="./src/app.js"></script>
+  </body>
+</html>

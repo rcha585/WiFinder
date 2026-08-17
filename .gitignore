@@ -21,6 +21,10 @@ local.properties
 .DS_Store
 Thumbs.db
 
+# Anchor Web generated output
+anchor-web/node_modules/
+anchor-web/dist/
+
 # Python venv
 .venv/
 venv/

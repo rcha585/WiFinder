@@ -2,6 +2,7 @@ package com.example.compsci399testproject
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -18,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.platform.LocalContext
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModelProvider
@@ -31,6 +33,7 @@ import com.example.compsci399testproject.viewmodel.MapViewModel
 import com.example.compsci399testproject.viewmodel.MapViewModelFactory
 import com.example.compsci399testproject.sensors.RotationSensorService
 import com.example.compsci399testproject.utils.CoordTransform
+import com.example.compsci399testproject.anchor.ui.AnchorMappingActivity
 
 class MainActivity : ComponentActivity() {
     private val LOCATION_PERMISSION_REQUEST_CODE = 1001
@@ -96,6 +99,7 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun Menu(navController: NavController) {
+    val context = LocalContext.current
     Column(
         modifier = Modifier.fillMaxSize().background(color = colorResource(id = R.color.lighter_grey)),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -104,6 +108,10 @@ fun Menu(navController: NavController) {
         MenuButton(onClick = { navController.navigate("WifiSignals") }, text = "Wi-Fi Signals")
         MenuButton(onClick = { navController.navigate("ScanTool") }, text = "Scan Tool")
         MenuButton(onClick = { navController.navigate("MainApp") }, text = "Main App")
+        MenuButton(
+            onClick = { context.startActivity(Intent(context, AnchorMappingActivity::class.java)) },
+            text = "Anchor Mapping (Experimental)",
+        )
 
     }
 }
